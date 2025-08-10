@@ -17,7 +17,7 @@ public class Patches
         private static void Postfix(ref PlayerController __instance, ref Player player)
         {
             if (!Calls.Players.IsHost() || Calls.Scene.GetSceneName() != "Park") return;
-            RigManager.LoadRigForPlayer(player);
+            MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null));
         }
     }
 
@@ -26,12 +26,12 @@ public class Patches
     {
         private static void Prefix(ref PlayerController __instance)
         {
-            if (!Main.instance.sceneInitialized) return;
+            if (!Main.instance.sceneInitialized || __instance == null) return;
             string leftId = __instance.assignedPlayer.Data.GeneralData.PlayFabMasterId;
 
             if (RigManager.rigs.TryGetValue(leftId, out var rigObj))
             {
-                GameObject.Destroy(rigObj.Item2);
+                GameObject.Destroy(rigObj.Root);
                 RigManager.rigs.Remove(leftId);
             }
         }
@@ -42,8 +42,8 @@ public class Patches
     {
         private static void Prefix(PlayerCharacterBaker.GeneratedPlayerVisuals generatedVisuals)
         {
-            if (Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false))
-                MelonCoroutines.Start(DelayedInitialize());
+            if (Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false)) {}
+                // MelonCoroutines.Start(DelayedInitialize());
         }
 
         private static IEnumerator DelayedInitialize()

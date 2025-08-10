@@ -3,6 +3,3 @@ build_property.RootNamespace = CustomAvatars
 build_property.ProjectDir = E:\Visual Studio Projects\CustomAvatars\CustomAvatars\
 build_property.EnableComHosting = 
 build_property.EnableGeneratedComInterfaceComImportInterop = 
-build_property.CsWinRTUseWindowsUIXamlProjections = false
-build_property.EffectiveAnalysisLevelStyle = 
-build_property.EnableCodeStyleSeverity = 

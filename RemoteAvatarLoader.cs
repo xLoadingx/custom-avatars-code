@@ -18,9 +18,13 @@ public class RemoteAvatarLoader
     private static readonly string RootDir =
         Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
 
+    private const int MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+
     private const string PART_A_B64 = "PTMuMi84BSo7LgVraxsMHREAEANqH2spLzwdFihrKS5rBTwrAi49NBYdPBQVKw==";
     private const string PART_B_B64 = "Dh0iEzwJPjsjPm4xIBwYbCw7Cz0gCBgYEjcwa2NuA25sAw4SAxUZLQIiaDc/FD4=";
     private const byte XOR_KEY = 0x5A;
+    
+    private static readonly HashSet<string> _downloadingPlayers = new();
 
     static string GetToken()
     {
@@ -76,15 +80,15 @@ public class RemoteAvatarLoader
         req.Dispose();
     }
 
-    public static void UploadBundle(string masterId, string path, System.Action<bool> done) =>
+    public static void UploadBundle(string masterId, string path, System.Action<bool, bool> done) =>
         MelonCoroutines.Start(UploadBundleCoroutine(masterId, path, done));
 
-    public static IEnumerator UploadBundleCoroutine(string masterId, string path, System.Action<bool> done)
+    public static IEnumerator UploadBundleCoroutine(string masterId, string path, System.Action<bool, bool> done)
     {
         var data = Calls.Players.GetLocalPlayer().Data.GeneralData;
         if (masterId != data.PlayFabMasterId)
         {
-            MelonLogger.Error($"Player tried to upload avatar for masterId that isn't theirs. Please do not mess with stuff like that, as I can see who tries to upload stuff.");
+            MelonLogger.Error($"Player tried to upload avatar for masterId that isn't theirs. Please do not mess with stuff like that. It benefits no one.");
             MelonCoroutines.Start(
                 SendAudit(
                     "masterId_mismatch", 
@@ -97,7 +101,7 @@ public class RemoteAvatarLoader
         if (!File.Exists(path))
         {
             Main.instance.LoggerInstance.Error($"AssetBundle at path '{path}' does not exist.");
-            done?.Invoke(false);
+            done?.Invoke(false, false);
             yield break;
         }
 
@@ -106,16 +110,38 @@ public class RemoteAvatarLoader
         catch (Exception e)
         {
             Main.instance.LoggerInstance.Error($"ReadAllBytes failed: {e.Message}");
-            done?.Invoke(false);
+            done?.Invoke(false, false);
+            yield break;
+        }
+
+        if (bytes.Length > MAX_UPLOAD_BYTES)
+        {
+            Main.instance.LoggerInstance.Error($"Upload failed: Bundle size {bytes.Length / (1024 * 1024)} MB exceeds {MAX_UPLOAD_BYTES / (1024 * 1024)} MB Limit.");
+            done.Invoke(false, false);
             yield break;
         }
 
         if (string.IsNullOrWhiteSpace(masterId) || bytes.Length == 0)
-        { done?.Invoke(false); yield break; }
+        { done?.Invoke(false, false); yield break; }
 
-        // --- SHA for update ---
+        // SHA for updating files
         string sha = null;
+        Main.instance.LoggerInstance.Msg("Fetching remote SHA...");
         yield return GetSha(masterId, s => sha = s);
+        Main.instance.LoggerInstance.Msg(sha != null
+            ? $"Remote SHA: {sha.Substring(0, 8)}"
+            : "No remote file found - will create new file.");
+
+        if (sha != null && !string.IsNullOrEmpty(sha) && ShaMatchesLocal(sha, path))
+        {
+            Main.instance.LoggerInstance.Msg("Upload skipped: Local file is identical to the server version.");
+            done?.Invoke(true, true);
+            yield break;
+        }
+        
+        Main.instance.LoggerInstance.Msg($"File size: {bytes.Length / 1024f / 1024f:F2} MB");
+        
+        Main.instance.LoggerInstance.Msg("Uploading to GitHub...");
 
         var body = $"{{\"message\":\"Upload bundle for {masterId}. Uploaded by {Calls.Players.GetLocalPlayer().Data.GeneralData.PublicUsername.TrimString()}\",\"content\":\"{System.Convert.ToBase64String(bytes)}\",\"branch\":\"{BRANCH}\"" +
                    (sha != null ? $",\"sha\":\"{sha}\"" : "") + "}";
@@ -150,7 +176,27 @@ public class RemoteAvatarLoader
         }
 
         req.Dispose();
-        done?.Invoke(ok);
+        done?.Invoke(ok, false);
+    }
+
+    static bool ShaMatchesLocal(string remoteSha, string filePath)
+    {
+        var bytes = File.ReadAllBytes(filePath);
+        var header = System.Text.Encoding.ASCII.GetBytes($"blob {bytes.Length}\0");
+        
+        using var sha1 = System.Security.Cryptography.SHA1.Create();
+        sha1.TransformBlock(header, 0, header.Length, header, 0);
+        sha1.TransformFinalBlock(bytes, 0, bytes.Length);
+        
+        var hex = BitConverter.ToString(sha1.Hash).Replace("-", "").ToLowerInvariant();
+        Main.instance.LoggerInstance.Msg($"Local SHA: {hex.Substring(0, 8)}");
+        return hex == remoteSha;
+    }
+
+    public static IEnumerator PlayerHasAvatar(string masterId, Action<bool> callback)
+    {
+        if (File.Exists(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents", masterId))) callback(true);
+        yield return MelonCoroutines.Start(GetSha(masterId, sha => callback(!string.IsNullOrEmpty(sha))));
     }
 
     static IEnumerator GetSha(string masterId, System.Action<string> cb)
@@ -159,10 +205,21 @@ public class RemoteAvatarLoader
         var req = UnityWebRequest.Get(url);
         SetGhHeaders(req, wantRaw:false);
         yield return req.SendWebRequest();
-        if (req.result != UnityWebRequest.Result.Success) { cb(null); req.Dispose(); yield break; }
+        
+        if ((long)req.responseCode == 404) { req.Dispose(); cb(null); yield break; }
+        MelonLogger.Msg($"GitHub responded {req.responseCode}: {req.result}");
 
-        var txt = req.downloadHandler.text;
+        if (req.result != UnityWebRequest.Result.Success)
+        {
+            Main.instance.LoggerInstance.Error($"Web request completed unsuccessfully | ERROR {req.responseCode} | {req.error}");
+            req.Dispose(); cb(null); yield break;
+        }
+
+        var data = req.downloadHandler?.data;
         req.Dispose();
+        if (data == null || data.Length == 0) { cb(null); yield break; }
+        
+        var txt = System.Text.Encoding.UTF8.GetString(data);
 
         int i = txt.IndexOf("\"sha\":\"", System.StringComparison.Ordinal);
         if (i < 0) { cb(null); yield break; }
@@ -170,8 +227,64 @@ public class RemoteAvatarLoader
         cb(j > i ? txt.Substring(i, j - i) : null);
     }
 
-    static IEnumerator DownloadToFile(string masterId, string savePath)
+    public static IEnumerator DownloadToFile(string masterId, string savePath)
     {
+        if (!_downloadingPlayers.Add(masterId))
+        {
+            Main.instance.LoggerInstance.Warning($"Player {masterId} is already being downloaded.");
+            yield break;
+        }
+        
+        var metaUrl = $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{Uri.EscapeDataString(masterId)}?ref={BRANCH}";
+        var metaReq = UnityWebRequest.Get(metaUrl);
+        SetGhHeaders(metaReq, wantRaw: false);
+        yield return metaReq.SendWebRequest();
+
+        if (metaReq.result != UnityWebRequest.Result.Success)
+        {
+            Main.instance.LoggerInstance.Error($"Metadata fetch failed for {masterId}: {metaReq.error}");
+            metaReq.Dispose();
+            yield break;
+        }
+
+        try
+        {
+            var bytes = metaReq.downloadHandler?.data;
+            if (bytes == null || bytes.Length == 0)
+            {
+                metaReq.Dispose();
+                yield break;
+            }
+            
+            var json = System.Text.Encoding.UTF8.GetString(bytes);
+            
+            var sizeIndex = json.IndexOf("\"size\":", StringComparison.Ordinal);
+            if (sizeIndex >= 0)
+            {
+                sizeIndex += 7;
+                int endIndex = json.IndexOfAny(new char[] { ',', '}' }, sizeIndex);
+                var sizeStr = json.Substring(sizeIndex, endIndex - sizeIndex).Trim();
+                if (int.TryParse(sizeStr, out int fileSizeBytes))
+                {
+                    int maxDownloadBytes = (int)Main.instance.downloadLimitMB.SavedValue * 1024 * 1024;
+                    if (fileSizeBytes > maxDownloadBytes)
+                    {
+                        Main.instance.LoggerInstance.Warning(
+                            $"Download skipped: {fileSizeBytes / (1024 * 1024)} MB exceeds limit of {maxDownloadBytes / (1024 * 1024)} MB.");
+                        metaReq.Dispose();
+                        yield break;
+                    }
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Main.instance.LoggerInstance.Error($"Error parsing metadata for {masterId}: {e.Message}");
+            metaReq.Dispose();
+            yield break;
+        }
+        metaReq.Dispose();
+        
         var req = UnityWebRequest.Get(GhUrl(masterId));
         SetGhHeaders(req, true);
         yield return req.SendWebRequest();
@@ -181,23 +294,8 @@ public class RemoteAvatarLoader
         else
             File.WriteAllBytes(savePath, req.downloadHandler.data);
 
+        _downloadingPlayers.Remove(masterId);
+
         req.Dispose();
-    }
-
-    public static IEnumerator FetchAssetBundle(string masterId, Action<AssetBundle> onReady, bool forceRefresh = false)
-    {
-        if (string.IsNullOrWhiteSpace(masterId)) yield break;
-
-        var path = LocalPath(masterId);
-        if (forceRefresh || !File.Exists(path))
-        {
-            yield return DownloadToFile(masterId, path);
-            if (!File.Exists(path)) yield break;
-        }
-
-        var ab = Calls.LoadAssetBundleFromFile(path);
-        if (!ab) { Main.instance.LoggerInstance.Error($"AssetBundle load failed: {path}"); yield break; }
-
-        onReady?.Invoke(ab);
     }
 }

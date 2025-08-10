@@ -113,3 +113,4 @@ E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\UnityEngi
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Unity.Burst.dll
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\ModUI.dll
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\UnityEngine.UnityWebRequestAssetBundleModule.dll
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\obj\Debug\net472\CustomAvatars.sourcelink.json
