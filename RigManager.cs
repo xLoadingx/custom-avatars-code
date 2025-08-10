@@ -90,7 +90,7 @@ public static class RigManager
         if (playerRenderer == null || rigRenderer == null) return;
 
         var playerRigRoot = player.Controller.transform.GetChild(1).GetChild(1);
-        ApplyRigToSMR(playerRigRoot, rig, player);
+        ApplyRigToSMR(playerRigRoot, rig, player.Controller.GetComponent<CustomRig>());
         
         if (log)
             instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");
@@ -107,27 +107,6 @@ public static class RigManager
 
         foreach (var rigBone in rigRoot.transform.GetComponentsInChildren<Transform>(true))
         {
-            if (customRigComp != null)
-            {
-                switch (rigBone.name)
-                {
-                    case "Bone_Head":
-                        customRigComp.Head = rigBone;
-                        customRigComp.HeadRb = rigBone.gameObject.GetOrAddComponent<Rigidbody>();
-                        break;
-                    case "Bone_HandAlpha_L":
-                        customRigComp.LeftHand = rigBone;
-                        break;
-                    case "Bone_HandAlpha_R":
-                        customRigComp.RightHand = rigBone;
-                        break;
-                    case "Bone_Pelvis":
-                        customRigComp.Pelvis = rigBone;
-                        customRigComp.PelvisRb = rigBone.gameObject.GetOrAddComponent<Rigidbody>();
-                        break;
-                }
-            }
-            
             rigBone.gameObject.layer = LayerMask.NameToLayer("Default");
             if (playerBones.TryGetValue(rigBone.name, out var playerBone))
             {
@@ -146,11 +125,12 @@ public static class RigManager
         }
     }
 
-    public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, Player player = null, SkinnedMeshRenderer renderer = null)
+    public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, CustomRig customRig = null, SkinnedMeshRenderer renderer = null)
     {
         void ApplyRig(Transform customRig, SkinnedMeshRenderer rigRenderer, SkinnedMeshRenderer playerRenderer, Material originalMaterial, CustomRig customRigComp = null)
         {
             ApplyRigBones(customRig, skeletonRoot, customRigComp);
+            
             playerRenderer.sharedMesh = rigRenderer.sharedMesh;
             playerRenderer.bones = rigRenderer.bones;
 
@@ -177,7 +157,6 @@ public static class RigManager
         
         if (renderer == null)
         {
-            var customRig = player.Controller.gameObject.GetComponent<CustomRig>();
             if (customRig != null && customRig.MeshRenderer != null)
                 ApplyRig(customRig.Root.transform, rigRenderer, customRig.MeshRenderer, customRig.OriginalMaterial, customRig);
         }
@@ -185,5 +164,16 @@ public static class RigManager
         {
             ApplyRig(rig.transform, rigRenderer, renderer, renderer.material);
         }
+    }
+    
+    static Transform FindDeep(Transform t, string name)
+    {
+        if (t.name.Equals(name, StringComparison.Ordinal)) return t;
+        for (int i = 0; i < t.childCount; i++)
+        {
+            var r = FindDeep(t.GetChild(i), name);
+            if (r) return r;
+        }
+        return null;
     }
 }

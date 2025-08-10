@@ -26,9 +26,6 @@
     <Reference Include="Il2CppPhotonUnityNetworking">
       <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\Il2CppPhotonUnityNetworking.dll</HintPath>
     </Reference>
-    <Reference Include="Il2CppRUMBLE.Plugins">
-      <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\Il2CppRUMBLE.Plugins.dll</HintPath>
-    </Reference>
     <Reference Include="Il2CppRUMBLE.Runtime">
       <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\Il2CppRUMBLE.Runtime.dll</HintPath>
     </Reference>
@@ -58,6 +55,9 @@
     </Reference>
     <Reference Include="UnityEngine">
       <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\UnityEngine.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\UnityEngine.AnimationModule.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.AssetBundleModule">
       <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\UnityEngine.AssetBundleModule.dll</HintPath>

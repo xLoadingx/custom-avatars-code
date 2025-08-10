@@ -159,13 +159,17 @@ namespace CustomAvatars
 
                         newRig.name = "RIG - Preview Controller (Dressing Room)";
                         newRig.transform.SetParent(rigParent.transform, true);
-
-                        var previewCustomRig = previewController.AddComponent<CustomRig>();
+                        
                         var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
-                        previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", true, smr);
-                        previewCustomRig.CaptureRig(newRig);
+                        var previewCustomRig = previewController.GetComponent<CustomRig>();
+                        if (previewCustomRig == null)
+                        {
+                            previewCustomRig = previewController.AddComponent<CustomRig>();
+                            previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", true, smr);
+                            previewCustomRig.CaptureRig(newRig);
+                        }
                     
-                        RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, renderer: smr);
+                        RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, customRig: previewCustomRig);
                         RigManager.rigs["PreviewController"] = previewCustomRig;
                     }
                 }, log));
@@ -347,24 +351,27 @@ namespace CustomAvatars
         {
             Root = rig;
 
-            var smr = rig.GetComponentInChildren<SkinnedMeshRenderer>();
-            if (smr == null) return;
+            var anim = rig.GetComponent<Animator>();
+            if (anim == null) return;
+            if (!anim.isHuman)
+            {
+                Main.instance.LoggerInstance.Error($"Loaded rig not marked as humanoid.");
+                return;
+            }
 
-            var pelvisBone = smr.bones.FirstOrDefault(b => b.name == "Bone_Pelvis");
+            var pelvisBone = anim.GetBoneTransform(HumanBodyBones.Hips);
             if (pelvisBone != null)
             {
                 Pelvis = pelvisBone;
                 PelvisRb = pelvisBone.gameObject.GetOrAddComponent<Rigidbody>();
             }
-                
 
-            var headBone = smr.bones.FirstOrDefault(b => b.name == "Bone_Head");
+            var headBone = anim.GetBoneTransform(HumanBodyBones.Head);
             if (headBone != null)
             {
                 Head = headBone;
                 HeadRb = headBone.gameObject.GetOrAddComponent<Rigidbody>();
             }
-               
         }
 
         public void OnDestroy()
