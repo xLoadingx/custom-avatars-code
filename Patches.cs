@@ -3,6 +3,7 @@ using UnityEngine;
 using HarmonyLib;
 using Il2CppRUMBLE.MeshGeneration;
 using Il2CppRUMBLE.Players;
+using Il2CppRUMBLE.Players.Scaling;
 using Il2CppRUMBLE.Players.Subsystems;
 using MelonLoader;
 using RumbleModdingAPI;
@@ -11,13 +12,39 @@ namespace CustomAvatars;
 
 public class Patches
 {
+    public static List<string> loadedPlayers = new();
+    
+    public static void ApplyRig(Player player)
+    {
+        MelonCoroutines.Start(
+            RemoteAvatarLoader.PlayerHasAvatar(player.Data.GeneralData.PlayFabMasterId, hasAvatar =>
+            {
+                if (!hasAvatar) return;
+            
+                var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
+                        
+                var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
+                customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
+                        
+                visuals.renderer.material = Main.poseGhostMaterial;
+                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true));
+            })
+        );
+    }
+    
     [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.Initialize), new[] { typeof(Player) })]
     public static class PlayerSpawn
     {
         private static void Postfix(ref PlayerController __instance, ref Player player)
         {
-            if (!Calls.Players.IsHost() || Calls.Scene.GetSceneName() != "Park") return;
-            MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null));
+            if (!(bool)(Main.instance?.toggleOthers?.SavedValue ?? false) && __instance.controllerType == ControllerType.Remote) return;
+            
+            string masterId = player.Data.GeneralData.PlayFabMasterId;
+            if (__instance.controllerType == ControllerType.Local || CustomAvatars.Patches.loadedPlayers.Contains(masterId)) return;
+            if (!CustomAvatars.Patches.loadedPlayers.Contains(masterId))
+                loadedPlayers.Add(masterId);
+            
+            ApplyRig(player);
         }
     }
 
@@ -31,7 +58,8 @@ public class Patches
 
             if (RigManager.rigs.TryGetValue(leftId, out var rigObj))
             {
-                GameObject.Destroy(rigObj.Root);
+                if (rigObj != null)
+                    GameObject.Destroy(rigObj.Root);
                 RigManager.rigs.Remove(leftId);
             }
         }
@@ -42,14 +70,14 @@ public class Patches
     {
         private static void Prefix(PlayerCharacterBaker.GeneratedPlayerVisuals generatedVisuals)
         {
-            if (Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false)) {}
-                // MelonCoroutines.Start(DelayedInitialize());
+            if (Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false))
+                MelonCoroutines.Start(DelayedInitialize());
         }
 
         private static IEnumerator DelayedInitialize()
         {
             yield return new WaitForEndOfFrame();
-            Main.instance.Initialize();
+            Main.instance.ApplyAvatars(false);
         }
     }
 }

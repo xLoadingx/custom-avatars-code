@@ -195,12 +195,15 @@ public class RemoteAvatarLoader
 
     public static IEnumerator PlayerHasAvatar(string masterId, Action<bool> callback)
     {
-        if (File.Exists(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents", masterId))) callback(true);
+        var path = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents", masterId);
+        if (File.Exists(path)) { callback(true); yield break; }
         yield return MelonCoroutines.Start(GetSha(masterId, sha => callback(!string.IsNullOrEmpty(sha))));
     }
 
     static IEnumerator GetSha(string masterId, System.Action<string> cb)
     {
+        Main.instance.LoggerInstance.Msg($"Fetching remote SHA for masterId {masterId}...");
+        
         var url = $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{Uri.EscapeDataString(masterId)}?ref={BRANCH}";
         var req = UnityWebRequest.Get(url);
         SetGhHeaders(req, wantRaw:false);
