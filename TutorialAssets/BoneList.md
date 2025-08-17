@@ -1,0 +1,105 @@
+# Courtesy of UlvakSkillz
+
+**Parent/Child Game Object Chain:**
+
+```
+ Bone_Pelvis
+ ----Bone_Frontflap_Anchor
+ ----Bone_Frontflap
+ ----Bone_Hip_L
+ -----Bone_Knee_L
+ ------Bone_Foot_L
+ -------Bone_Toe_L
+ --------FootstepAudio
+ -----PhysicsBone_Collider
+ ----Bone_Hip_R
+ -----Bone_Knee_R
+ ------Bone_Foot_R
+ -------Bone_Toe_R
+ --------FootstepAudio
+ -----PhysicsBone_Collider
+ ----Bone_Spine_A
+ -----Bone_Chest
+ ------Bone_Neck
+ -------Bone_Head
+ --------Bone_Brow_A_L
+ ---------Bone_Brow_B_L
+ --------Bone_Brow_A_R
+ ---------Bone_Brow_B_R
+ --------Bone_Jaw
+ ---------Bone_Bottomlip
+ ---------Bone_Bottomlip_L
+ ---------Bone_Bottomlip_R
+ --------Bone_Lowereyelid_L
+ --------Bone_Lowereyelid_R
+ --------Bone_Mouthcorner_L
+ --------Bone_Mouthcorner_R
+ --------Bone_Nazalfold_L
+ --------Bone_Nazalfold_R
+ --------Bone_Nose
+ --------Bone_Tail
+ --------Bone_Tail_Anchor
+ --------Bone_Uppereyelid_L
+ --------Bone_Uppereyelid_R
+ --------Bone_Upperlip
+ --------Bone_Upperlip_B_L
+ --------Bone_Upperlip_B_R
+ --------Eyebone_L
+ --------Eyebone_R
+ --------Attention Point
+ --------BucketCrown
+ ---------BucketCrownHandle
+ ------Bone_Shoulderblade_L
+ -------Bone_Shoulder_L
+ --------Bone_Lowerarm_L
+ ---------Bone_HandAlpha_L
+ ----------Bone_Middlefinger_A_L
+ -----------Bone_Middlefinger_B_L
+ ------------Bone_Middlefinger_C_L
+ ----------Bone_pinkie_A_L
+ -----------Bone_pinkie_B_L
+ ------------Bone_pinkie_C_L
+ ----------Bone_Pointer_A_L
+ -----------Bone_Pointer_B_L
+ ------------Bone_Pointer_C_L
+ ----------Bone_Ringfinger_A_L
+ -----------Bone_Ringfinger_B_L
+ ------------Bone_Ringfinger_C_L
+ ----------Bone_Thumb_A_L
+ -----------Bone_Thumb_B_L
+ ------------Bone_Thumb_C_L
+ ----------ShifstoneSocket_L
+ ----------Attention Point
+ ----------SnapTransform
+ -----------YourStone (name of stone depends on what you wear. Ex: Stubbornstone)
+ ------------Mesh
+ ------------Shiftstone Trigger VFX
+ ---------LeftWristLCK
+ ------Bone_Shoulderblade_R
+ -------Bone_Shoulder_R
+ --------Bone_Lowerarm_R
+ ---------Bone_HandAlpha_R
+ ----------Bone_Middlefinger_A_R
+ -----------Bone_Middlefinger_B_R
+ ------------Bone_Middlefinger_C_R
+ ----------Bone_pinkie_A_R
+ -----------Bone_pinkie_B_R
+ ------------Bone_pinkie_C_R
+ ----------Bone_Pointer_A_R
+ -----------Bone_Pointer_B_R
+ ------------Bone_Pointer_C_R
+ ----------Bone_Ringfinger_A_R
+ -----------Bone_Ringfinger_B_R
+ ------------Bone_Ringfinger_C_R
+ ----------Bone_Thumb_A_R
+ -----------Bone_Thumb_B_R
+ ------------Bone_Thumb_C_R
+ ----------Attention Point
+ ----------ShiftstoneSocket_R
+ ----------SnapTransform
+ -----------YourStone (name of stone depends on what you wear. Ex: Stubbornstone)
+ ------------Mesh
+ ------------Shiftstone Trigger VFX
+ ---------RightWristLCK
+ ------Yourstone_VFX
+```
