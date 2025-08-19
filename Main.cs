@@ -1,23 +1,29 @@
 ﻿using System.Collections;
+using System.Reflection;
 using CustomAvatars;
-using Il2CppPhoton.Pun;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Il2CppPhoton.Voice.Unity;
 using Il2CppRUMBLE.Interactions.InteractionBase;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
-using Il2CppRUMBLE.Utilities.SmartLocalization;
 using Il2CppSmartLocalization.Editor;
 using Il2CppTMPro;
 using UnityEngine;
 using RumbleModdingAPI;
 using MelonLoader;
+using MelonLoader.Logging;
 using MelonLoader.Utils;
 using RumbleModUI;
 using UnityEngine.Events;
 using Main = CustomAvatars.Main;
+using Object = UnityEngine.Object;
+using Random = UnityEngine.Random;
 
-[assembly: MelonInfo(typeof(CustomAvatars.Main), "CustomAvatars", "1.0.0", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.0.0", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
+[assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
+[assembly: MelonAuthorColor(255, 255, 0, 0)]
 
 namespace CustomAvatars
 {
@@ -67,9 +73,13 @@ namespace CustomAvatars
         public static Main instance;
 
         public GameObject rigParent;
+        public GameObject refreshAvatarButton;
 
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
+        public ModSetting<bool> showNonModAvatars;
+        public ModSetting<bool> logAvatarStats;
+        public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
         public ModSetting<int> maxConcurrentDownloads;
         
@@ -87,7 +97,6 @@ namespace CustomAvatars
         // TODO:
         // Add base avatars you can choose from and customize
         // Make tutorial on how to make custom avatars
-        // Make player shader an option based on the SMR
         
         public override void OnLateInitializeMelon()
         {
@@ -119,8 +128,8 @@ namespace CustomAvatars
                 {
                     File.Delete(file);
                 } 
-                catch (IOException e) { }
-                catch (UnauthorizedAccessException e) { }
+                catch (IOException) { }
+                catch (UnauthorizedAccessException) { }
             }
         }
 
@@ -131,7 +140,7 @@ namespace CustomAvatars
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             Directory.CreateDirectory(filePath);
 
-            ApplyAvatars();
+            MelonCoroutines.Start(WaitAndApplyAvatars());
 
             if (currentScene == "Gym" && !sceneInitialized)
             {
@@ -140,17 +149,17 @@ namespace CustomAvatars
 
                 tryOutModePanel.transform.localPosition = new Vector3(-0.1164f, 0.1962f, -0.1014f);
                 
-                GameObject RefreshAvatar = GameObject.Instantiate(tryOutModePanel);
-                RefreshAvatar.transform.SetParent(tryOutModePanel.transform.parent, false);
-                RefreshAvatar.name = "Refresh Avatar Panel";
-                RefreshAvatar.transform.localPosition = new Vector3(0.1069f, 0.1962f, -0.1014f);
+                refreshAvatarButton = GameObject.Instantiate(tryOutModePanel);
+                refreshAvatarButton.transform.SetParent(tryOutModePanel.transform.parent, false);
+                refreshAvatarButton.name = "Refresh Avatar Panel";
+                refreshAvatarButton.transform.localPosition = new Vector3(0.1069f, 0.1962f, -0.1014f);
                 
-                InteractionButton interactionButton = RefreshAvatar.transform.GetChild(1).GetChild(0).GetComponent<InteractionButton>();
+                InteractionButton interactionButton = refreshAvatarButton.transform.GetChild(1).GetChild(0).GetComponent<InteractionButton>();
                 interactionButton.onPressed.RemoveAllListeners();
                 interactionButton.onPressed.AddListener((UnityAction)(() => { if ((bool)toggleLocal.SavedValue) Initialize(); }));
 
-                TextMeshPro text = RefreshAvatar.transform.GetChild(1).GetChild(1).GetComponent<TextMeshPro>();
-                UnityEngine.Object.Destroy(text.transform.GetComponent<LocalizedTextTMPro>());
+                TextMeshPro text = refreshAvatarButton.transform.GetChild(1).GetChild(1).GetComponent<TextMeshPro>();
+                Object.Destroy(text.transform.GetComponent<LocalizedTextTMPro>());
                 text.m_text = "Refresh Avatar";
                 text.fontSize = 0.25f;
                 text.ForceMeshUpdate();
@@ -158,13 +167,13 @@ namespace CustomAvatars
             
             sceneInitialized = true;
         }
-
-        // Oh god this is so bad but it works.
-        public IEnumerator WaitThenApplyAvatars()
+        
+        // Oh god this is so bad but it works
+        public IEnumerator WaitAndApplyAvatars()
         {
-            ApplyAvatars(false);
-            yield return new WaitForEndOfFrame();
             ApplyAvatars(true);
+            yield return new WaitForEndOfFrame();
+            ApplyAvatars(false);
         }
 
         public void ApplyAvatars(bool log = true)
@@ -189,14 +198,16 @@ namespace CustomAvatars
             
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
+                if (!(bool)toggleLocal.SavedValue)
+                    customRig.Apply(CustomRig.RigState.Original);
+                else
+                    customRig.Apply(CustomRig.RigState.Rigged);
+                
                 if (currentScene == "Gym" && rig != null)
                 {
-                    if (!(bool)toggleLocal.SavedValue)
-                        customRig.Apply(CustomRig.RigState.Original);
-                    
                     var previewController =
                         Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
-            
+
                     GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
                         Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig"), "Rig");
 
@@ -204,16 +215,22 @@ namespace CustomAvatars
                     newRig.transform.SetParent(rigParent.transform, true);
                     
                     var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
-                    var previewCustomRig = previewController.GetComponent<CustomRig>();
+                    var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
                     if (previewCustomRig == null)
                     {
-                        previewCustomRig = previewController.AddComponent<CustomRig>();
+                        previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
                         previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr);
                     }
                     previewCustomRig.CaptureRig(newRig);
+                    previewCustomRig.Config = customRig.Config;
                 
                     RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, customRig: previewCustomRig);
                     RigManager.rigs["Preview Controller"] = previewCustomRig;
+                    
+                    if (!(bool)toggleLocal.SavedValue)
+                        previewCustomRig.Apply(CustomRig.RigState.Original);
+                    else
+                        previewCustomRig.Apply(CustomRig.RigState.Rigged);
                 }
             }, log));
 
@@ -231,46 +248,38 @@ namespace CustomAvatars
 
         public override void OnFixedUpdate()
         {
-            void SetBonePair(Transform target, Transform source, Rigidbody targetRb)
-            {
-                if (target == null || source == null) return;
-                
-                targetRb.isKinematic = true;
-                targetRb.interpolation = RigidbodyInterpolation.Interpolate;
-                targetRb.MovePosition(source.position);
-                targetRb.MoveRotation(source.rotation);
-            }
-            
             if (currentScene == "Loader") return;
 
             if (rigParent && !rigParent.activeSelf)
                 rigParent.SetActive(true);
-
+            
             if (Input.GetKeyDown(KeyCode.R))
                 Initialize();
-        }
-
-        bool IsValidAssetBundle(string path)
-        {
-            if (!File.Exists(path)) return false;
-            
-            return true;
         }
 
         public void OnUIInitialized()
         {
             var mod = new Mod
             {
-                ModName = "CustomAvatars",
+                ModName = "<b><#6A5ACD>Custom Avatars</color></b>",
                 ModVersion = "1.0.0"
             };
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
-            toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles custom avatars for others.", new Tags());
+            
+            mod.AddToList("<b><#114F11>- Avatar Visibility</color></b>", false, 0, "", new Tags { DoNotSave = true });
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles custom avatars for yourself.", new Tags());
+            toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles custom avatars for others.", new Tags());
+            showNonModAvatars = mod.AddToList("Force Avatars for Non-Mod Players", false, 0, "If enabled, avatars will be shown even for players who don't have CustomAvatars installed (as long as they've uploaded one).", new Tags());
+
+            mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
+            logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
+            logOtherAvatarStats = mod.AddToList("Log Avatar Statistics (other)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when a remote player's avatar is loaded.", new Tags());
+
+            mod.AddToList("<b><#305CDE>- Download & Upload</color></b>", false, 0, "", new Tags { DoNotSave = true });
             downloadLimitMB = mod.AddToList("Max File Download Size", 50, "The max download size for other avatars in MB.", new Tags());
             maxConcurrentDownloads = mod.AddToList("Max Concurrent Downloads", 3, "The maximum number of downloads that can be ran at the same time.", new Tags());
-            UploadAvatar = mod.AddToList("Upload Avatar", false, 0, "Uploads avatar when the button is clicked.",
+            UploadAvatar = mod.AddToList("Upload Avatar", false, 0, "Uploads the avatar in the folder when the button is clicked and saved.",
                 new Tags
                 {
                     DoNotSave = true
@@ -280,7 +289,7 @@ namespace CustomAvatars
             {
                 string rigBundle = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig");
                 string masterId = Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId;
-                if (!IsValidAssetBundle(rigBundle))
+                if (!File.Exists(rigBundle))
                 {
                     LoggerInstance.Error($"Invalid bundle found at path: {rigBundle}");
                     return;
@@ -297,33 +306,38 @@ namespace CustomAvatars
             toggleOthers.SavedValueChanged += (sender, args) =>
             {
                 bool enabled = (bool)toggleOthers.Value;
-                LoggerInstance.Msg($"Toggle Others set to {enabled}.");
+
+                foreach (var rig in RigManager.rigs)
+                {
+                    if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId) continue;
+                    if (rig.Key == "Preview Controller") continue;
+                    
+                    rig.Value?.Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                }
             };
             
             toggleLocal.SavedValueChanged += (sender, args) =>
             {
                 bool enabled = (bool)toggleLocal.Value;
-                LoggerInstance.Msg($"Toggle Local set to {enabled}.");
 
-                var localId = Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId;
-                foreach (var kvp in RigManager.rigs)
+                foreach (var rig in RigManager.rigs)
                 {
-                    if (kvp.Key == localId)
-                    {
-                        kvp.Value.Apply(enabled
-                            ? CustomRig.RigState.Rigged
-                            : CustomRig.RigState.Original);
-                    }
+                    if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId || rig.Key == "Preview Controller")
+                        rig.Value?.Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                 }
-            };
-            
-            downloadLimitMB.SavedValueChanged += (sender, args) =>
-                LoggerInstance.Msg(
-                    $"Max File Download Size set to {(int)downloadLimitMB.Value}.");
 
-            maxConcurrentDownloads.SavedValueChanged += (sender, args) =>
-                LoggerInstance.Msg(
-                    $"Max Concurrent Downloads set to {(int)maxConcurrentDownloads.Value}.");
+                var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
+                var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
+                method?.Invoke(null, new object[] { currentScene == "Gym" });
+            };
+
+            logAvatarStats.SavedValueChanged += (sender, args) =>
+            {
+                bool enabled = (bool)logAvatarStats.Value;
+                
+                if (enabled)
+                    LoggerInstance.Msg("Will log on next Avatar Refresh.");
+            };
             
             mod.GetFromFile();
             UI.instance.AddMod(mod);
@@ -336,8 +350,19 @@ namespace CustomAvatars
         public string PlayerId;
         public bool IsLocal;
 
+        public AvatarDescriptorExport Config;
+
         public GameObject Root;
         public GameObject PlayerRoot;
+
+        private object blinkCoroutine;
+
+        private Speaker remoteSpeaker;
+        private AudioSource remoteAudioSource;
+        
+        private Recorder localRecorder;
+
+        public float volumeMultiplier = 30f;
 
         public List<TriggerCollider> triggerColliders = new();
         public List<GrabbableObject> grabbableObjects = new();
@@ -359,6 +384,52 @@ namespace CustomAvatars
         
         public SkinnedMeshRenderer MeshRenderer;
 
+        void Update()
+        {
+            if (Config == null || MeshRenderer == null || Config.jawOpenBlendshape < 0)
+                return;
+
+            float weight = 0f;
+
+            if (IsLocal && localRecorder?.LevelMeter != null)
+            {
+                float volume = localRecorder.LevelMeter.CurrentAvgAmp;
+                weight = Mathf.Clamp01(volume * volumeMultiplier) * 100f;
+            }
+            else if (!IsLocal && remoteSpeaker != null && remoteSpeaker.IsPlaying)
+            {
+                if (remoteAudioSource != null)
+                {
+                    float[] samples = new float[32];
+                    remoteAudioSource.GetOutputData(samples, 0);
+
+                    float sum = 0f;
+                    foreach (float s in samples)
+                        sum += s * s;
+
+                    float volume = Mathf.Sqrt(sum / samples.Length);
+                    weight = Mathf.Clamp01(volume * 20f) * 100f;
+                } 
+            }
+            
+            MeshRenderer.SetBlendShapeWeight(Config.jawOpenBlendshape, weight);
+        }
+        
+        private AudioClip GetMicClip(Recorder recorder)
+        {
+            if (recorder == null)
+                return null;
+
+            var micSourceField = recorder.GetType().GetField("microphoneSource", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (micSourceField == null)
+                return null;
+
+            var micSource = micSourceField.GetValue(recorder);
+
+            var clipProp = micSource?.GetType().GetProperty("MicrophoneClip", BindingFlags.Public | BindingFlags.Instance);
+            return clipProp?.GetValue(micSource) as AudioClip;
+        }
+
         public void CaptureOriginal(string playerId, bool isLocal, SkinnedMeshRenderer renderer)
         {
             if (renderer == null)
@@ -375,11 +446,21 @@ namespace CustomAvatars
 
             PlayerId = playerId;
             IsLocal = isLocal;
-            PlayerRoot = renderer.transform.parent.GetChild(1).gameObject;
+
+            var parent = renderer.transform.parent;
+            if (parent != null && parent.childCount > 1)
+            {
+                PlayerRoot = parent.GetChild(1).gameObject;
+            }
+            else
+            {
+                Main.instance.LoggerInstance.Warning($"CaptureOriginal: Could not find 'Skelington' (index 1) under renderer's parent for player {playerId ?? "Unknown"}.");
+                return;
+            }
 
             OriginalMesh = Instantiate(renderer.sharedMesh);
             OriginalMesh.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
-            
+
             if (renderer.material != null)
             {
                 OriginalMaterial = Instantiate(renderer.material);
@@ -391,8 +472,25 @@ namespace CustomAvatars
             }
 
             OriginalBones = renderer.bones ?? Array.Empty<Transform>();
-
             MeshRenderer = renderer;
+
+            try
+            {
+                var target = transform.GetChild(2).GetChild(0).GetChild(0).GetChild(2);
+                if (IsLocal)
+                {
+                    localRecorder = target.GetComponent<Recorder>();
+                }
+                else
+                {
+                    remoteSpeaker = target.GetComponent<Speaker>();
+                    remoteAudioSource = remoteSpeaker.GetComponent<AudioSource>();
+                }
+            }
+            catch
+            {
+                Main.instance.LoggerInstance.Warning("CaptureOriginal: Recorder/Speaker hierarchy is missing or malformed.");
+            }
         }
 
         public void CaptureRig(GameObject rig)
@@ -470,18 +568,97 @@ namespace CustomAvatars
             switch (state)
             {
                 case RigState.Original:
-                    MeshRenderer.material = OriginalMaterial;
+                    MeshRenderer.materials = new Material[] { OriginalMaterial };
                     MeshRenderer.bones = OriginalBones;
                     MeshRenderer.sharedMesh = OriginalMesh;
+                    if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
                     break;
                 case RigState.Rigged:
                     MeshRenderer.material = RigMaterial;
                     MeshRenderer.bones = RigBones;
                     MeshRenderer.sharedMesh = RigMesh;
+
+                    if (Config != null)
+                    {
+                        foreach (var blendshape in Config.defaultBlendshapes)
+                        {
+                            if (blendshape.index >= 0)
+                                MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
+                            else
+                                Main.instance.LoggerInstance.Warning($"Blendshape '{blendshape.name}' not found on mesh '{RigMesh.name}'");
+                        }
+                        
+                        if (IsLocal && Config.autoBlink)
+                        {
+                            if (blinkCoroutine != null)
+                                MelonCoroutines.Stop(blinkCoroutine);
+
+                            blinkCoroutine = MelonCoroutines.Start(AutoBlinkCoroutine());
+                        }
+                    }
+                    
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(state), state, null);
             }
+        }
+
+        private IEnumerator AutoBlinkCoroutine()
+        {
+            while (true)
+            {
+                float waitTime = UnityEngine.Random.Range(Config.blinkInterval.x, Config.blinkInterval.y);
+                yield return new WaitForSeconds(waitTime);
+
+                float blinkDuration = 0.05f;
+
+                switch ((AvatarDescriptorExport.BlinkType)Config.blinkType)
+                {
+                    case AvatarDescriptorExport.BlinkType.Single:
+                        int singleIdx = Config.blinkBlendshape;
+                        if (singleIdx >= 0)
+                        {
+                            yield return MelonCoroutines.Start(BlinkBlendshapeLerp(singleIdx, 100f, blinkDuration));
+                            yield return MelonCoroutines.Start(BlinkBlendshapeLerp(singleIdx, 0f, blinkDuration));
+                        }
+                        break;
+
+                    case AvatarDescriptorExport.BlinkType.LeftRight:
+                        int leftIdx = Config.blinkLeftBlendshape;
+                        int rightIdx = Config.blinkRightBlendshape;
+
+                        if (leftIdx >= 0) MelonCoroutines.Start(BlinkBlendshapeLerp(leftIdx, 100f, blinkDuration));
+                        if (rightIdx >= 0) MelonCoroutines.Start(BlinkBlendshapeLerp(rightIdx, 100f, blinkDuration));
+                        yield return new WaitForSeconds(blinkDuration);
+
+                        if (leftIdx >= 0) MelonCoroutines.Start(BlinkBlendshapeLerp(leftIdx, 0f, blinkDuration));
+                        if (rightIdx >= 0) MelonCoroutines.Start(BlinkBlendshapeLerp(rightIdx, 0f, blinkDuration));
+                        yield return new WaitForSeconds(blinkDuration);
+
+                        break;
+                    
+                    case AvatarDescriptorExport.BlinkType.None:
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+            }
+        }
+
+        private IEnumerator BlinkBlendshapeLerp(int index, float targetWeight, float duration)
+        {
+            float startWeight = MeshRenderer.GetBlendShapeWeight(index);
+            float elapsed = 0f;
+
+            while (elapsed < duration)
+            {
+                float t = elapsed / duration;
+                MeshRenderer.SetBlendShapeWeight(index, Mathf.Lerp(startWeight, targetWeight, t));
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            MeshRenderer.SetBlendShapeWeight(index, targetWeight);
         }
 
         public void OnDestroy()
@@ -490,6 +667,7 @@ namespace CustomAvatars
             if (OriginalMaterial) Destroy(OriginalMaterial);
             if (RigMesh) Destroy(RigMesh);
             if (RigMaterial) Destroy(RigMaterial);
+            if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
         }
     }
 }
@@ -575,11 +753,9 @@ public class TriggerCollider : MonoBehaviour
 
     public IEnumerator ToggleTemp(TriggerAction action)
     {
-        if (runningTempToggles.Contains(action.TargetGameObject))
+        if (!runningTempToggles.Add(action.TargetGameObject))
             yield break;
-        
-        runningTempToggles.Add(action.TargetGameObject);
-        
+
         action.TargetGameObject.SetActive(!action.TargetGameObject.activeSelf);
         yield return new WaitForSeconds(action.Duration);
         action.TargetGameObject.SetActive(!action.TargetGameObject.activeSelf);

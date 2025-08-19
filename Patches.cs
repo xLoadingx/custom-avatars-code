@@ -3,10 +3,8 @@ using UnityEngine;
 using HarmonyLib;
 using Il2CppRUMBLE.MeshGeneration;
 using Il2CppRUMBLE.Players;
-using Il2CppRUMBLE.Players.Scaling;
 using Il2CppRUMBLE.Players.Subsystems;
 using MelonLoader;
-using RumbleModdingAPI;
 
 namespace CustomAvatars;
 
@@ -16,17 +14,23 @@ public class Patches
     
     public static void ApplyRig(Player player)
     {
+        var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
+        
+        var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
+        customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
+        
+        visuals.renderer.material = Main.poseGhostMaterial;
+        
         MelonCoroutines.Start(
             RemoteAvatarLoader.PlayerHasAvatar(player.Data.GeneralData.PlayFabMasterId, hasAvatar =>
             {
-                if (!hasAvatar) return;
-            
-                var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
-                        
-                var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
-                customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
-                        
-                visuals.renderer.material = Main.poseGhostMaterial;
+                if (!hasAvatar)
+                {
+                    customRig.Apply(CustomRig.RigState.Original);
+                    UnityEngine.Object.Destroy(customRig);
+                    return;
+                }
+                
                 MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true));
             })
         );
@@ -51,15 +55,20 @@ public class Patches
     [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.OnDestroy))]
     public static class PlayerRemove
     {
-        private static void Prefix(ref PlayerController __instance)
+        private static void Prefix(PlayerController __instance)
         {
             if (!Main.instance.sceneInitialized || __instance == null) return;
-            string leftId = __instance.assignedPlayer.Data.GeneralData.PlayFabMasterId;
+
+            var assigned = __instance.assignedPlayer;
+            if (assigned?.Data?.GeneralData == null) return;
+
+            string leftId = assigned.Data.GeneralData.PlayFabMasterId;
 
             if (RigManager.rigs.TryGetValue(leftId, out var rigObj))
             {
                 if (rigObj != null)
                     GameObject.Destroy(rigObj.Root);
+
                 RigManager.rigs.Remove(leftId);
             }
         }

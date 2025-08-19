@@ -114,3 +114,5 @@ E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Unity.Bur
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\ModUI.dll
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\UnityEngine.UnityWebRequestAssetBundleModule.dll
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\obj\Debug\net472\CustomAvatars.sourcelink.json
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Newtonsoft.Json.dll
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Il2CppPhotonVoice.PUN.dll
