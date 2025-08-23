@@ -1,10 +1,12 @@
 using System.Collections;
 using UnityEngine;
 using HarmonyLib;
+using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.MeshGeneration;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
 using MelonLoader;
+using RumbleModdingAPI;
 
 namespace CustomAvatars;
 
@@ -14,24 +16,20 @@ public class Patches
     
     public static void ApplyRig(Player player)
     {
-        var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
-        
-        var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
-        customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
-        
-        visuals.renderer.material = Main.poseGhostMaterial;
-        
         MelonCoroutines.Start(
-            RemoteAvatarLoader.PlayerHasAvatar(player.Data.GeneralData.PlayFabMasterId, hasAvatar =>
+            RemoteAvatarLoader.PlayerHasAvatar(player.Data.GeneralData.PlayFabMasterId, avatarDetails =>
             {
-                if (!hasAvatar)
+                if (avatarDetails.hasAvatar)
                 {
-                    customRig.Apply(CustomRig.RigState.Original);
-                    UnityEngine.Object.Destroy(customRig);
-                    return;
+                    var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
+        
+                    var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
+                    customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
+        
+                    visuals.renderer.material = Main.poseGhostMaterial;
+                    
+                    MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true, avatarDetails.returnedSha));
                 }
-                
-                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true));
             })
         );
     }
@@ -74,19 +72,15 @@ public class Patches
         }
     }
 
-    [HarmonyPatch(typeof(PlayerVisuals), nameof(PlayerVisuals.ApplyPlayerVisuals))]
-    public static class ApplyPlayerVisuals
+    [HarmonyPatch(typeof(DressingRoom), nameof(DressingRoom.UpdatePlayerVisuals))]
+    public static class DressingRoomVisuals
     {
-        private static void Prefix(PlayerCharacterBaker.GeneratedPlayerVisuals generatedVisuals)
+        private static bool Prefix(bool saveChanges)
         {
             if (Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false))
-                MelonCoroutines.Start(DelayedInitialize());
-        }
+                return false;
 
-        private static IEnumerator DelayedInitialize()
-        {
-            yield return new WaitForEndOfFrame();
-            Main.instance.ApplyAvatars(false);
+            return true;
         }
     }
 }

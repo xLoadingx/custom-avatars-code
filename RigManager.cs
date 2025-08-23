@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Reflection;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
 using MelonLoader;
@@ -7,6 +8,7 @@ using MelonLoader.Utils;
 using Newtonsoft.Json;
 using RumbleModdingAPI;
 using UnityEngine;
+using Object = System.Object;
 
 namespace CustomAvatars;
 
@@ -124,8 +126,52 @@ public static class RigManager
             
         rigs.Clear();
     }
+    
+    public static Il2CppSystem.IO.Stream ConvertToIl2CppStream(Stream stream)
+    {
+        Il2CppSystem.IO.MemoryStream il2CppStream = new Il2CppSystem.IO.MemoryStream();
+        byte[] numArray = new byte[4096 /*0x1000*/];
+        Il2CppStructArray<byte> il2CppStructArray = new Il2CppStructArray<byte>(numArray);
+        int count;
+        while ((count = stream.Read(numArray, 0, numArray.Length)) > 0)
+        {
+            Il2CppStructArray<byte> buffer = (Il2CppStructArray<byte>) numArray;
+            il2CppStream.Write(buffer, 0, count);
+        }
+        il2CppStream.Flush();
+        return (Il2CppSystem.IO.Stream) il2CppStream;
+    }
 
-    public static IEnumerator LoadRigForPlayer(Player player, Action<GameObject> onLoaded, bool log = true)
+    public static MemoryStream StreamFromFile(string path)
+    {
+        return new MemoryStream(File.ReadAllBytes(path));
+    }
+
+    public static IEnumerator LoadAssetBundleFromFileAsync(string filePath, Action<AssetBundle> onLoaded)
+    {
+        MemoryStream ms = null;
+
+        Task loadTask = Task.Run(() =>
+        {
+            ms = StreamFromFile(filePath);
+        });
+
+        while (!loadTask.IsCompleted)
+            yield return null;
+        
+        if (ms == null)
+        {
+            onLoaded?.Invoke(null);
+            yield break;
+        }
+
+        Il2CppSystem.IO.Stream il2cppStream = ConvertToIl2CppStream(ms);
+        AssetBundle bundle = AssetBundle.LoadFromStream(il2cppStream);
+
+        onLoaded?.Invoke(bundle);
+    }
+    
+    public static IEnumerator LoadRigForPlayer(Player player, Action<GameObject> onLoaded, bool log = true, string remoteSha = null)
     {
         string playerID = player?.Data?.GeneralData?.PlayFabMasterId;
         if (string.IsNullOrEmpty(playerID))
@@ -171,8 +217,9 @@ public static class RigManager
                 yield break;
             }
 
-            AssetBundle rigBundle = Calls.LoadAssetBundleFromFile(rigPath);
-            GameObject rigPrefab = rigBundle.LoadAsset<GameObject>("Rig");
+            AssetBundle rigBundle = null;
+            yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath, (bundle) => { rigBundle = bundle; }));
+            GameObject rigPrefab = rigBundle?.LoadAsset<GameObject>("Rig");
             if (rigPrefab == null)
             {
                 Main.instance.LoggerInstance.Error(
@@ -258,14 +305,12 @@ public static class RigManager
                 LogStatsForAvatar(rigInstance);
 
             ApplyRigToPlayer(player, rigInstance);
-
+            
             if (!isLocal)
             {
                 string path = Path.Combine(basePath, "Opponents", playerID);
-                if (File.Exists(path))
-                    File.Delete(path);
 
-                if ((bool)Main.instance.toggleOthers.SavedValue)
+                if (!(bool)Main.instance.toggleOthers.SavedValue)
                     player.Controller.GetComponent<CustomRig>().Apply(CustomRig.RigState.Original);
             }
 
@@ -309,20 +354,20 @@ public static class RigManager
 
     public static void ApplyRigBones(Transform rigRoot, Transform playerRigRoot)
     {
-        var playerBones = new Dictionary<string, Transform>();
-        foreach (var bone in playerRigRoot.GetComponentsInChildren<Transform>(true))
+        var playerBones = new Dictionary<string, Transform>(); 
+        foreach (var bone in playerRigRoot.GetComponentsInChildren<Transform>(true)) 
             playerBones[bone.name] = bone;
-        
+
         foreach (var rigBone in rigRoot.GetComponentsInChildren<Transform>(true))
         {
             rigBone.gameObject.layer = LayerMask.NameToLayer("Default");
-
             if (playerBones.TryGetValue(rigBone.name, out var playerBone))
             {
-                rigBone.SetParent(playerBone, true);
-                rigBone.localPosition = Vector3.zero;
+                rigBone.SetParent(playerBone, true); 
+                rigBone.localPosition = Vector3.zero; 
                 rigBone.localRotation = Quaternion.identity;
-
+                rigBone.localScale = Vector3.Scale(rigBone.localScale, playerBone.localScale);
+                
                 rigBone.gameObject.AddComponent<CustomRigBone>();
             }
         }
@@ -397,54 +442,57 @@ public static class RigManager
 
             var rigMats = rigRenderer.materials;
             var newMats = new Material[rigMats.Length];
-
-            if (customRig.Config != null)
+            
+            int bodyIndex = customRig.Config?.bodyShaderSlot ?? 0;
+            
+            for (int i = 0; i < rigMats.Length; i++)
             {
-                for (int i = 0; i < rigMats.Length; i++)
+                Material original = rigMats[i];
+                Material mat;
+            
+                bool isPlayerShader = customRig.Config != null && customRig.Config.playerShaderSlots.Contains(i);
+            
+                if (isPlayerShader)
                 {
-                    if (customRig.Config.playerShaderSlots.Contains(i))
+                    mat = new Material(customRig.OriginalMaterial);
+            
+                    var baseMap = original.GetTexture("_BaseMap");
+                    if (baseMap != null)
+                        mat.SetTexture("_ColorAtlas", baseMap);
+                }
+                else
+                {
+                    mat = new Material(original);
+                }
+            
+                if (i == bodyIndex && visuals != null && customRig.IsLocal)
+                {
+                    if (isPlayerShader)
                     {
-                        newMats[i] = new Material(customRig.OriginalMaterial);
-                        var baseMapTex = rigMats[i].GetTexture("_BaseMap");
-                        if (baseMapTex != null)
-                        {
-                            newMats[i].SetTexture("_ColorAtlas", baseMapTex);
-                            
-                            if (visuals != null && visuals.NonHeadClippedMaterial != null && customRig.Config.bodyShaderSlot == i)
-                                visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMapTex);
-                        }
-                        else
-                        {
-                            Main.instance.LoggerInstance.Warning($"_BaseMap texture is null for material {rigMats[i].name}");
-                        }
+                        var baseMap = original.GetTexture("_BaseMap");
+                        if (baseMap != null)
+                            visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMap);
                     }
                     else
                     {
-                        newMats[i] = new Material(rigMats[i]);
+                        visuals.NonHeadClippedMaterial = original;
+                        if (visuals.NonHeadClippedMaterial.HasFloat("_IsLocal"))
+                            visuals.NonHeadClippedMaterial.SetFloat("_IsLocal", 0f);
                     }
                 }
                 
-                foreach (var blendshape in customRig.Config.defaultBlendshapes)
-                {
-                    if (blendshape.index >= 0)
-                        customRig.MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
-                    else
-                        Main.instance.LoggerInstance.Warning($"Blendshape '{blendshape.name}' not found on mesh '{customRig.MeshRenderer.sharedMesh.name}'");
-                }
-            }
-            else
-            {
-                newMats = rigMats;
+                if (mat.HasFloat("_IsLocal"))
+                    mat.SetFloat("_IsLocal", customRig.IsLocal ? 1f : 0f);
+            
+                newMats[i] = mat;
             }
 
             playerRenderer.materials = newMats;
 
-            for (int i = 0; i < playerRenderer.materials.Length; i++)
+            if (visuals != null && customRig.IsLocal)
             {
-                var mat = playerRenderer.materials[i];
-
-                if (mat.HasFloat("_IsLocal"))
-                    mat.SetFloat("_IsLocal", customRig.IsLocal ? 1f : 0f);
+                customRig.RigVisualsMaterial = new Material(visuals.NonHeadClippedMaterial);
+                customRig.RigVisualsMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
             }
 
             if (customRig != null)

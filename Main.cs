@@ -3,6 +3,7 @@ using System.Reflection;
 using CustomAvatars;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppPhoton.Voice.Unity;
+using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Interactions.InteractionBase;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
@@ -62,9 +63,12 @@ namespace CustomAvatars
             return null;
         }
     }
-    
+
     [RegisterTypeInIl2Cpp]
-    public class CustomRigBone : MonoBehaviour {}
+    public class CustomRigBone : MonoBehaviour
+    {
+        public Quaternion rotationOffset = Quaternion.identity;
+    }
 
     public class Main : MelonMod
     {
@@ -77,7 +81,6 @@ namespace CustomAvatars
 
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
-        public ModSetting<bool> showNonModAvatars;
         public ModSetting<bool> logAvatarStats;
         public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
@@ -216,11 +219,11 @@ namespace CustomAvatars
                     
                     var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
                     var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
-                    if (previewCustomRig == null)
-                    {
-                        previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
-                        previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr);
-                    }
+                    if (previewCustomRig != null)
+                        GameObject.Destroy(previewCustomRig);
+                    
+                    previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
+                    previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr);
                     previewCustomRig.CaptureRig(newRig);
                     previewCustomRig.Config = customRig.Config;
                 
@@ -270,7 +273,6 @@ namespace CustomAvatars
             mod.AddToList("<b><#114F11>- Avatar Visibility</color></b>", false, 0, "", new Tags { DoNotSave = true });
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles custom avatars for yourself.", new Tags());
             toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles custom avatars for others.", new Tags());
-            showNonModAvatars = mod.AddToList("Force Avatars for Non-Mod Players", false, 0, "If enabled, avatars will be shown even for players who don't have CustomAvatars installed (as long as they've uploaded one).", new Tags());
 
             mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
             logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
@@ -322,9 +324,25 @@ namespace CustomAvatars
 
                 foreach (var rig in RigManager.rigs)
                 {
-                    if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId || rig.Key == "Preview Controller")
+                    if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId ||
+                        rig.Key == "Preview Controller")
+                    {
+                        if (rig.Value?.playerVisuals != null && enabled)
+                            rig.Value.OriginalVisualsMaterial = rig.Value.playerVisuals.NonHeadClippedMaterial;
+                        
                         rig.Value?.Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                    }
+                        
                 }
+
+                if (currentScene == "Gym")
+                {
+                    if (!enabled)
+                        Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject().GetComponent<DressingRoom>().UpdatePlayerVisuals();
+                    
+                    refreshAvatarButton?.SetActive(enabled);
+                }
+                    
 
                 var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
                 var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
@@ -369,10 +387,12 @@ namespace CustomAvatars
 
         // --- Toggles for the two ---
         public Material OriginalMaterial;
+        public Material OriginalVisualsMaterial;
         public Mesh OriginalMesh;
         public Transform[] OriginalBones;
 
         public Material RigMaterial;
+        public Material RigVisualsMaterial;
         public Mesh RigMesh;
         public Transform[] RigBones;
 
@@ -383,10 +403,19 @@ namespace CustomAvatars
         }
         
         public SkinnedMeshRenderer MeshRenderer;
+        public PlayerVisuals playerVisuals;
 
         void Update()
         {
-            if (Config == null || MeshRenderer == null || Config.jawOpenBlendshape < 0)
+            if (OriginalMaterial == null || OriginalMesh == null)
+            {
+                OriginalMaterial = new Material(MeshRenderer.material);
+                OriginalMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+                OriginalMesh = Instantiate(MeshRenderer.sharedMesh);
+                OriginalMesh.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+            }
+            
+            if (Config == null || MeshRenderer == null || Config.jawOpenBlendshape < 0 || MeshRenderer.sharedMesh.blendShapeCount < 1)
                 return;
 
             float weight = 0f;
@@ -456,6 +485,13 @@ namespace CustomAvatars
             {
                 Main.instance.LoggerInstance.Warning($"CaptureOriginal: Could not find 'Skelington' (index 1) under renderer's parent for player {playerId ?? "Unknown"}.");
                 return;
+            }
+
+            playerVisuals = parent.GetComponent<PlayerVisuals>();
+            if (playerVisuals != null && isLocal)
+            {
+                OriginalVisualsMaterial = Instantiate(playerVisuals.NonHeadClippedMaterial);
+                OriginalVisualsMaterial.hideFlags = HideFlags.HideAndDontSave | HideFlags.DontUnloadUnusedAsset;
             }
 
             OriginalMesh = Instantiate(renderer.sharedMesh);
@@ -571,12 +607,19 @@ namespace CustomAvatars
                     MeshRenderer.materials = new Material[] { OriginalMaterial };
                     MeshRenderer.bones = OriginalBones;
                     MeshRenderer.sharedMesh = OriginalMesh;
+                    
+                    if (playerVisuals != null && IsLocal)
+                        playerVisuals.NonHeadClippedMaterial = OriginalVisualsMaterial;
+                    
                     if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
                     break;
                 case RigState.Rigged:
                     MeshRenderer.material = RigMaterial;
                     MeshRenderer.bones = RigBones;
                     MeshRenderer.sharedMesh = RigMesh;
+                    
+                    if (playerVisuals != null && IsLocal)
+                        playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
 
                     if (Config != null)
                     {

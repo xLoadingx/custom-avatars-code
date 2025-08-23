@@ -194,39 +194,9 @@ public class RemoteAvatarLoader
         return hex == remoteSha;
     }
 
-    // A little cursed but it works.
-    public static IEnumerator PlayerHasAvatar(string masterId, Action<bool> callback)
+    public static IEnumerator PlayerHasAvatar(string masterId, Action<(bool hasAvatar, string returnedSha)> callback)
     {
-        var path = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents", masterId);
-        if (File.Exists(path))
-        {
-            yield return GetSha(masterId, remoteSha =>
-            {
-                var player = Calls.Players.GetAllPlayers().ToArray()
-                    .FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == masterId);
-
-                if ((player?.Controller?.HasMod("CustomAvatars") ?? false) && !(bool)Main.instance.showNonModAvatars.SavedValue)
-                {
-                    callback?.Invoke(false);
-                }
-                else
-                {
-                    if (string.IsNullOrEmpty(remoteSha) || !ShaMatchesLocal(remoteSha, path))
-                    {
-                        File.Delete(path);
-                        callback?.Invoke(true);
-                    }
-                    else
-                    {
-                        callback?.Invoke(true);
-                    }
-                }
-            });
-        }
-        else
-        {
-            yield return MelonCoroutines.Start(GetSha(masterId, sha => callback(!string.IsNullOrEmpty(sha))));
-        }
+        yield return MelonCoroutines.Start(GetSha(masterId, sha => callback((!string.IsNullOrEmpty(sha), sha))));
     }
 
     static IEnumerator GetSha(string masterId, System.Action<string> cb)
