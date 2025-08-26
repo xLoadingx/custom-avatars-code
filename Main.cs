@@ -28,8 +28,10 @@ using Random = UnityEngine.Random;
 
 namespace CustomAvatars
 {
-    public static class GameObjectExtensions
+    public static class Extensions
     {
+        public static string TrimString(this string str) => System.Text.RegularExpressions.Regex.Replace(str, "<.*?>|\\(.*?\\)|[^a-zA-Z0-9_ ]", "").Trim();
+        
         public static T GetOrAddComponent<T>(this GameObject gameObject) where T : Component
         {
             T component = gameObject.GetComponent<T>();
@@ -39,11 +41,16 @@ namespace CustomAvatars
             }
             return component;
         }
-    }
 
-    public static class StringExtensions
-    {
-        public static string TrimString(this string str) => System.Text.RegularExpressions.Regex.Replace(str, "<.*?>|\\(.*?\\)|[^a-zA-Z0-9_ ]", "").Trim();
+        public static T GetSavedValue<T>(this ModSetting<T> modSetting)
+        {
+            return (T)(modSetting?.SavedValue ?? default(T));
+        }
+        
+        public static T GetValue<T>(this ModSetting<T> modSetting) 
+        {
+            return (T)(modSetting?.Value ?? default(T));
+        }
     }
 
     public static class TransformExtensions
@@ -77,14 +84,19 @@ namespace CustomAvatars
         public static Main instance;
 
         public GameObject rigParent;
+        public GameObject avatarOptimizationParent;
         public GameObject refreshAvatarButton;
 
+        public Mod mod = new Mod();
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
         public ModSetting<bool> logAvatarStats;
         public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
         public ModSetting<int> maxConcurrentDownloads;
+
+        public ModSetting<bool> perPlayerHeader;
+        public Dictionary<CustomRig, ModSetting<bool>> perPlayerToggles = new();
         
         public ModSetting<bool> UploadAvatar;
 
@@ -166,6 +178,30 @@ namespace CustomAvatars
                 text.m_text = "Refresh Avatar";
                 text.fontSize = 0.25f;
                 text.ForceMeshUpdate();
+
+                avatarOptimizationParent = new GameObject("AvatarDetails");
+                avatarOptimizationParent.transform.SetParent(rigParent.transform);
+                avatarOptimizationParent.transform.localPosition = new Vector3(-2.9091f, 1.4218f, -1.5964f);
+                avatarOptimizationParent.transform.localScale = Vector3.one * 0.5f;
+                avatarOptimizationParent.transform.localRotation = Quaternion.Euler(0f, 206.6199f, 0f);
+                
+                var summary = Calls.Create.NewText("GOOD", 1f, new Color(0f, 0.5f, 0f), Vector3.zero, Quaternion.identity);
+                summary.name = "Summary";
+                summary.transform.SetParent(avatarOptimizationParent.transform, false);
+                summary.transform.localPosition = new Vector3(0f, 0.0919f, 0f);
+                summary.GetComponent<TextMeshPro>().enableWordWrapping = false;
+                
+                var details = Calls.Create.NewText("0 verts, 0 mat(s), 0 texture(s)", 1f, new Color(0f, 0.5f, 0f), Vector3.zero, Quaternion.identity);
+                details.name = "Details";
+                details.transform.SetParent(avatarOptimizationParent.transform, false);
+                details.GetComponent<TextMeshPro>().enableWordWrapping = false;
+                
+                var warnings = Calls.Create.NewText("WARNINGS:", 1f, new Color(1, 1, 0), Vector3.zero, Quaternion.identity);
+                warnings.name = "Warnings";
+                warnings.transform.SetParent(avatarOptimizationParent.transform, false);
+                warnings.transform.localPosition = new Vector3(0, -0.0919f, 0f);
+                warnings.GetComponent<TextMeshPro>().enableWordWrapping = false;
+                warnings.GetComponent<TextMeshPro>().alignment = TextAlignmentOptions.Center;
             }
             
             sceneInitialized = true;
@@ -195,7 +231,8 @@ namespace CustomAvatars
                 customRig.CaptureOriginal(
                     localPlayer.Data.GeneralData.PlayFabMasterId, 
                     true, 
-                    localPlayer.Controller.GetSubsystem<PlayerVisuals>().renderer
+                    localPlayer.Controller.GetSubsystem<PlayerVisuals>().renderer,
+                    log
                 );
             }
             
@@ -223,12 +260,13 @@ namespace CustomAvatars
                         GameObject.Destroy(previewCustomRig);
                     
                     previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
-                    previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr);
+                    previewCustomRig.PlayerName = "Preview Controller (Dressing Room)";
+                    previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr, log);
                     previewCustomRig.CaptureRig(newRig);
                     previewCustomRig.Config = customRig.Config;
                 
                     RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, customRig: previewCustomRig);
-                    RigManager.rigs["Preview Controller"] = previewCustomRig;
+                    RigManager.rigs["Preview Controller (Dressing Room)"] = previewCustomRig;
                     
                     if (!(bool)toggleLocal.SavedValue)
                         previewCustomRig.Apply(CustomRig.RigState.Original);
@@ -255,18 +293,79 @@ namespace CustomAvatars
 
             if (rigParent && !rigParent.activeSelf)
                 rigParent.SetActive(true);
-            
+        }
+
+        public override void OnUpdate()
+        {
             if (Input.GetKeyDown(KeyCode.R))
+            {
                 Initialize();
+
+                if (Calls.Players.GetAllPlayers().Count > 1)
+                {
+                    var players = Calls.Players.GetAllPlayers().ToArray();
+                    foreach (var rig in RigManager.rigs)
+                    {
+                        if (rig.Value?.IsLocal ?? true) return;
+                    
+                        if (File.Exists(rig.Value.AvatarFilePath))
+                            File.Delete(rig.Value.AvatarFilePath);
+
+                        var player = players.FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == rig.Key);
+                        if (player != null)
+                            Patches.ApplyRig(player);
+                    }
+                }
+            }
+        }
+
+        public void AddRigToList(CustomRig rig)
+        {
+            try
+            {
+                string playerName = string.IsNullOrEmpty(rig.PlayerName) ? "Unnamed Player" : rig.PlayerName;
+
+                if (perPlayerToggles.Count == 0)
+                    perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Toggles", false, 0, "", new Tags { DoNotSave = true });
+
+                var setting = mod.AddToList($"{playerName} ({rig.PlayerId})", true, 0, $"Toggles the avatar for {playerName}.", new Tags());
+
+                setting.SavedValueChanged += (sender, args) =>
+                {
+                    if (toggleOthers.GetValue())
+                        rig.Apply(setting.GetValue() ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                };
+
+                perPlayerToggles[rig] = setting;
+
+                mod.GetFromFile();
+            }
+            catch (Exception ex)
+            {
+                LoggerInstance.Error($"Failed to add rig to ModUI: {ex}");
+            }
+        }
+
+        public void RemoveRigFromList(CustomRig rig)
+        {
+            if (perPlayerToggles.TryGetValue(rig, out var setting))
+            {
+                mod.Settings.Remove(setting);
+                perPlayerToggles.Remove(rig);
+            }
+            
+            if (perPlayerHeader != null && perPlayerToggles.Count == 0)
+            {
+                mod.Settings.Remove(perPlayerHeader);
+                perPlayerHeader = null;
+            }
         }
 
         public void OnUIInitialized()
         {
-            var mod = new Mod
-            {
-                ModName = "<b><#6A5ACD>Custom Avatars</color></b>",
-                ModVersion = "1.0.0"
-            };
+            mod.ModName = "<b><#6A5ACD>Custom Avatars</color></b>";
+            mod.ModVersion = "1.0.0";
+                
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
             
@@ -287,7 +386,7 @@ namespace CustomAvatars
                     DoNotSave = true
                 });
 
-            UploadAvatar.CurrentValueChanged += (sender, args) =>
+            UploadAvatar.SavedValueChanged += (sender, args) =>
             {
                 string rigBundle = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig");
                 string masterId = Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId;
@@ -312,9 +411,10 @@ namespace CustomAvatars
                 foreach (var rig in RigManager.rigs)
                 {
                     if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId) continue;
-                    if (rig.Key == "Preview Controller") continue;
-                    
-                    rig.Value?.Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                    if (rig.Key == "Preview Controller (Dressing Room)") continue;
+
+                    var setting = perPlayerToggles.FirstOrDefault(s => s.Key.PlayerId == rig.Key).Value;
+                    rig.Value?.Apply(enabled && (setting?.GetValue() ?? false) ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                 }
             };
             
@@ -325,7 +425,7 @@ namespace CustomAvatars
                 foreach (var rig in RigManager.rigs)
                 {
                     if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId ||
-                        rig.Key == "Preview Controller")
+                        rig.Key == "Preview Controller (Dressing Room)")
                     {
                         if (rig.Value?.playerVisuals != null && enabled)
                             rig.Value.OriginalVisualsMaterial = rig.Value.playerVisuals.NonHeadClippedMaterial;
@@ -341,6 +441,7 @@ namespace CustomAvatars
                         Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject().GetComponent<DressingRoom>().UpdatePlayerVisuals();
                     
                     refreshAvatarButton?.SetActive(enabled);
+                    avatarOptimizationParent?.SetActive(enabled);
                 }
                     
 
@@ -367,6 +468,8 @@ namespace CustomAvatars
     {
         public string PlayerId;
         public bool IsLocal;
+        public string PlayerName;
+        public string AvatarFilePath;
 
         public AvatarDescriptorExport Config;
 
@@ -425,20 +528,26 @@ namespace CustomAvatars
                 float volume = localRecorder.LevelMeter.CurrentAvgAmp;
                 weight = Mathf.Clamp01(volume * volumeMultiplier) * 100f;
             }
-            else if (!IsLocal && remoteSpeaker != null && remoteSpeaker.IsPlaying)
+            else if (!IsLocal && remoteSpeaker != null)
             {
+                float volume = 0f;
+
                 if (remoteAudioSource != null)
                 {
-                    float[] samples = new float[32];
-                    remoteAudioSource.GetOutputData(samples, 0);
+                    float[] s = new float[64];
+                    remoteAudioSource.GetSpectrumData(s, 0, FFTWindow.Rectangular);
+                    for (int i = 0; i < s.Length; i++) volume += s[i];
+                }
 
-                    float sum = 0f;
-                    foreach (float s in samples)
-                        sum += s * s;
+                if (volume <= 0.0001f)
+                {
+                    var prop = remoteSpeaker.GetType().GetProperty("LevelMeter", BindingFlags.Public|BindingFlags.Instance);
+                    var lm = prop?.GetValue(remoteSpeaker);
+                    var avgProp = lm?.GetType().GetProperty("CurrentAvgAmp");
+                    if (avgProp != null) volume = (float)avgProp.GetValue(lm);
+                }
 
-                    float volume = Mathf.Sqrt(sum / samples.Length);
-                    weight = Mathf.Clamp01(volume * 20f) * 100f;
-                } 
+                weight = Mathf.Clamp01(volume * volumeMultiplier) * 100f;
             }
             
             MeshRenderer.SetBlendShapeWeight(Config.jawOpenBlendshape, weight);
@@ -459,17 +568,19 @@ namespace CustomAvatars
             return clipProp?.GetValue(micSource) as AudioClip;
         }
 
-        public void CaptureOriginal(string playerId, bool isLocal, SkinnedMeshRenderer renderer)
+        public void CaptureOriginal(string playerId, bool isLocal, SkinnedMeshRenderer renderer, bool log = true)
         {
             if (renderer == null)
             {
-                Main.instance.LoggerInstance.Warning($"CaptureOriginal: Renderer is null for player {playerId ?? "Unknown"}, skipping.");
+                if (log)
+                    Main.instance.LoggerInstance.Warning($"CaptureOriginal: Renderer is null for player {playerId ?? "Unknown"}, skipping.");
                 return;
             }
 
             if (renderer.sharedMesh == null)
             {
-                Main.instance.LoggerInstance.Warning($"CaptureOriginal: SharedMesh is null for player {playerId ?? "Unknown"}, skipping.");
+                if (log)
+                    Main.instance.LoggerInstance.Warning($"CaptureOriginal: SharedMesh is null for player {playerId ?? "Unknown"}, skipping.");
                 return;
             }
 
@@ -483,7 +594,8 @@ namespace CustomAvatars
             }
             else
             {
-                Main.instance.LoggerInstance.Warning($"CaptureOriginal: Could not find 'Skelington' (index 1) under renderer's parent for player {playerId ?? "Unknown"}.");
+                if (log)
+                    Main.instance.LoggerInstance.Warning($"CaptureOriginal: Could not find 'Skelington' (index 1) under renderer's parent for player {playerId ?? "Unknown"}.");
                 return;
             }
 
@@ -504,7 +616,8 @@ namespace CustomAvatars
             }
             else
             {
-                Main.instance.LoggerInstance.Warning("CaptureOriginal: Renderer material is null.");
+                if (log)
+                    Main.instance.LoggerInstance.Warning("CaptureOriginal: Renderer material is null.");
             }
 
             OriginalBones = renderer.bones ?? Array.Empty<Transform>();
@@ -525,7 +638,8 @@ namespace CustomAvatars
             }
             catch
             {
-                Main.instance.LoggerInstance.Warning("CaptureOriginal: Recorder/Speaker hierarchy is missing or malformed.");
+                if (log)
+                    Main.instance.LoggerInstance.Warning("CaptureOriginal: Recorder/Speaker hierarchy is missing or malformed.");
             }
         }
 
@@ -623,15 +737,9 @@ namespace CustomAvatars
 
                     if (Config != null)
                     {
-                        foreach (var blendshape in Config.defaultBlendshapes)
-                        {
-                            if (blendshape.index >= 0)
-                                MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
-                            else
-                                Main.instance.LoggerInstance.Warning($"Blendshape '{blendshape.name}' not found on mesh '{RigMesh.name}'");
-                        }
+                        MelonCoroutines.Start(ApplyDefaultBlendshapes());
                         
-                        if (IsLocal && Config.autoBlink)
+                        if (Config.autoBlink)
                         {
                             if (blinkCoroutine != null)
                                 MelonCoroutines.Stop(blinkCoroutine);
@@ -643,6 +751,18 @@ namespace CustomAvatars
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(state), state, null);
+            }
+        }
+
+        private IEnumerator ApplyDefaultBlendshapes()
+        {
+            yield return null;
+            if (MeshRenderer == null || MeshRenderer.sharedMesh == null) yield break;
+
+            foreach (var blendshape in Config.defaultBlendshapes)
+            {
+                if (blendshape.index >= 0 && blendshape.index < MeshRenderer.sharedMesh.blendShapeCount)
+                    MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
             }
         }
 

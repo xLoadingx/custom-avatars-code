@@ -3,6 +3,7 @@ using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
+using Il2CppTMPro;
 using MelonLoader;
 using MelonLoader.Utils;
 using Newtonsoft.Json;
@@ -117,12 +118,38 @@ public static class RigManager
         LoggerInstance.MsgPastel(color, $"[Avatar Optimization] {rating}: {vertexCount} verts, {materialCount} mat(s), {totalTextures} texture(s).");
         LoggerInstance.MsgPastel(ConsoleColor.Yellow, $"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}");
         MelonLogger.MsgPastel(color, "-------------------------------------------------------------");
+
+        if (Main.instance.currentScene == "Gym")
+        {
+            Color textColor = (color switch
+            {
+                ConsoleColor.Green => new Color(0f, 0.5f, 0f),
+                ConsoleColor.Yellow => Color.yellow,
+                _ => Color.red
+            });
+            
+            var avatarDetails = Main.instance.avatarOptimizationParent;
+            avatarDetails.transform.GetChild(0).GetComponent<TextMeshPro>().text = rating;
+            avatarDetails.transform.GetChild(0).GetComponent<TextMeshPro>().color = textColor;
+            
+            avatarDetails.transform.GetChild(1).GetComponent<TextMeshPro>().text = $"{vertexCount} verts, {materialCount} mat(s), {totalTextures} texture(s).";
+            avatarDetails.transform.GetChild(1).GetComponent<TextMeshPro>().color = textColor;
+            
+            avatarDetails.transform.GetChild(2).GetComponent<TextMeshPro>().text = $"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}";
+        }
     }
 
     public static void ClearRigs()
     {
         foreach (var rig in rigs.Values)
+        {
+            rig.Apply(CustomRig.RigState.Original);
+            
+            if (Main.instance.perPlayerToggles.ContainsKey(rig))
+                Main.instance.RemoveRigFromList(rig);
+            
             GameObject.Destroy(rig.Root);
+        }
             
         rigs.Clear();
     }
@@ -180,16 +207,19 @@ public static class RigManager
             yield break;
         }
 
-        if (!loadingPlayers.Add(playerID))
+        if (player.Controller.ControllerType != ControllerType.Local)
         {
-            MelonLogger.Msg($"LoadRigForPlayer: player {playerID} is already loading");
-            yield break;
+            if (!loadingPlayers.Add(playerID))
+            {
+                MelonLogger.Msg($"LoadRigForPlayer: player {playerID} is already loading");
+                yield break;
+            }
+
+            while (activeLoads >= (int)Main.instance.maxConcurrentDownloads.SavedValue)
+                yield return null;
+
+            activeLoads++;
         }
-
-        while (activeLoads >= (int)Main.instance.maxConcurrentDownloads.SavedValue)
-            yield return null;
-
-        activeLoads++;
 
         try
         {
@@ -198,12 +228,14 @@ public static class RigManager
             string opponentPath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             if (!Directory.Exists(opponentPath)) Directory.CreateDirectory(opponentPath);
 
+            string filePath = isLocal ? Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig") : Path.Combine(opponentPath, playerID);
             if (!isLocal && !File.Exists(Path.Combine(opponentPath, playerID)))
             {
                 if (log)
                     Main.instance.LoggerInstance.Msg($"Downloading avatar for path {opponentPath}");
+                
                 yield return MelonCoroutines.Start(
-                    RemoteAvatarLoader.DownloadToFile(playerID, Path.Combine(opponentPath, playerID)));
+                    RemoteAvatarLoader.DownloadToFile(playerID, filePath));
             }
 
             string basePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars");
@@ -293,18 +325,21 @@ public static class RigManager
                 }
             }
 
+            customRig.PlayerName = player.Data.GeneralData.PublicUsername;
+            customRig.AvatarFilePath = filePath;
+
             rigBundle.Unload(false);
 
             if (log)
                 Main.instance.LoggerInstance.Msg($"Loading rig for player {playerID}");
 
-            if (rigInstance != null && (
+            if (rigInstance != null && log && (
                     ((bool)Main.instance.logAvatarStats.SavedValue && isLocal)
                     || ((bool)Main.instance.logOtherAvatarStats.SavedValue && !isLocal))
                )
                 LogStatsForAvatar(rigInstance);
 
-            ApplyRigToPlayer(player, rigInstance);
+            ApplyRigToPlayer(player, rigInstance, log);
             
             if (!isLocal)
             {
@@ -312,6 +347,8 @@ public static class RigManager
 
                 if (!(bool)Main.instance.toggleOthers.SavedValue)
                     player.Controller.GetComponent<CustomRig>().Apply(CustomRig.RigState.Original);
+
+                Main.instance.AddRigToList(customRig);
             }
 
             var camObj = GameObject.Find($"RumbleHud_{playerID}_portraitCamera");
@@ -346,7 +383,6 @@ public static class RigManager
 
         var playerRigRoot = player.Controller.transform.GetChild(1).GetChild(1);
         ApplyRigToSMR(playerRigRoot, rig, player.Controller.GetComponent<CustomRig>(), visuals: player.Controller.GetSubsystem<PlayerVisuals>());
-        
         
         if (log)
             instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");

@@ -5,8 +5,11 @@ using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.MeshGeneration;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
+using Il2CppTMPro;
 using MelonLoader;
 using RumbleModdingAPI;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 namespace CustomAvatars;
 
@@ -27,6 +30,8 @@ public class Patches
                     customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
         
                     visuals.renderer.material = Main.poseGhostMaterial;
+
+                    Main.instance.AddRigToList(customRig);
                     
                     MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true, avatarDetails.returnedSha));
                 }
@@ -65,7 +70,10 @@ public class Patches
             if (RigManager.rigs.TryGetValue(leftId, out var rigObj))
             {
                 if (rigObj != null)
+                {
                     GameObject.Destroy(rigObj.Root);
+                    Main.instance.RemoveRigFromList(rigObj);
+                }
 
                 RigManager.rigs.Remove(leftId);
             }
