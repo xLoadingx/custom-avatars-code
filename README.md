@@ -91,7 +91,6 @@ I won't be covering fixess for specific FBX/rigging errors here, but you can usu
         - Blink Settings
             - Auto Blink: Toggles blinking
             - Blink Interval: The random value that waits between each blink. X is minimum, Y is maximum.
-            - Blink duration: How fast your avatar blinks (in seconds).
             - Blink speed: How long each blink takes (in seconds).
 
         - Default BlendShapes
