@@ -59,17 +59,24 @@ If you're better following visual tutorials, you can follow this great video by 
     - Oculus Touch Controller Profile
 
 # Step 4 Import & Modify Your Rig
-1. Drag your `.FBX` into Unity's `Assets`, then drag it into the scene. Once in the scene, drag it back into the `Assets` folder and click `Prefab Variant` if prompted.
-2. Root object name must be `Rig` (Case-Sensitive).
-3. FBX -> Rig tab -> Animation Type -> Humanoid -> Configure (ignore T-Pose warning).
-4. Set any bones that Unity didn't automatically set on the right hand side. Don't assign any bones you don't want to make follow the rumble rig.
+1. Drag your `.FBX` into Unity's **Assets**, then drag it into the scene. Once in the scene, drag it back into the `Assets` folder and click `Prefab Variant` if prompted.
+2. The root object name must be `Rig` (Case-Sensitive).
+3. In the **Rig** tab of your FBX, set Animation Type -> Humanoid
+4. Click 'Configure...' and check for any issues.
+5. Set any bones that Unity didn't automatically set on the right hand side. Don't assign any bones you don't want to make follow the RUMBLE rig.
 
-I will not be going over how to fix certain problems here, but you can always look it up or ask in the discord!
+If your rig cannot be set as **Humanoid** (for example, if it has fewer than 15 bones), switch it to **Generic** instead.
+In this case, each bone you want to follow in-game needs to be renamed to match the bone used by RUMBLE's rig.
+You can find the full list of valid bone names [here](https://github.com/xLoadingx/custom-avatars-code/blob/main/TutorialAssets/BoneList.md)
 
-5. In your assets folder, go to Create -> CustomAvatars -> AvatarDescriptor. Then, click this new descriptor (can be named anything), and assign your prefab to the top 'Avatar Prefab' slot.
+I won't be covering fixess for specific FBX/rigging errors here, but you can usually find a solution online, or ask in the Discord!
+
+6. In your assets folder, go to Create -> CustomAvatars -> AvatarDescriptor. Select the new descriptor (you can name it anything), and assign your newly created Prefab Variant to the top 'Avatar Prefab' slot.
 
 # What is an Avatar Descriptor?
 - An avatar descriptor basically helps the mod know how to affect your avatar. Here is a more convoluted explanation:
+    - Swap Original Mesh: A toggle to check if you want to make your avatar get rid of your in game one. This can be turned off if you simply wanted to add things to your avatar (with a Generic rig).
+    
     - Player Shader Slots: This is a toggle for all your material slots to use the player shader. For example, if you were to select your 'Body' material as a player shader, it would replace it in game. This requires the mesh to have a RED vertex color in order to hide the head. The material you select has to have a "BaseMap" texture option in the shader, which comes default with URP/Lit, URP/Unlit, and others.
 
     - Body Material: Sadly, Rock Cam only currently supports one material for the player. The material you select here will be the one that shows in Rock Cam. **MAKE SURE** the shader is uses has a "IsLocal" bool that toggles the head on and off. You can either use the sample shaders provided in the 'CustomAvatarsSDK' folder, or make your own (Shader Graph or HLSL works fine).
@@ -98,7 +105,9 @@ Anything really that you know how to do. However, the one limitation with this m
 
 ### Step 6 - Build Asset Bundle
 1. Custom Avatars (top bar) -> RUMBLE Avatar Builder -> Drag in your Avatar's Avatar Descriptor.
-2. Set your output path (preferablly your CustomAvatars folder in RUMBLE/UserData), and then hit 'Build Bundle'.
+2. Set your output path (preferablly your CustomAvatars folder: 'RUMBLE/UserData/CustomAvatars'), and then hit 'Build Bundle'.
+
+If you did not set it to your CustomAvatars folder, you'll have to drag it in manually.
 
 ### Step 7 - Test It
 - Launch RUMBLE. Your rig should load on your local player.
