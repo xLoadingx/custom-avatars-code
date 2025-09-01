@@ -17,6 +17,7 @@ using MelonLoader.Logging;
 using MelonLoader.Utils;
 using RumbleModUI;
 using UnityEngine.Events;
+using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 using Main = CustomAvatars.Main;
 using Object = UnityEngine.Object;
 using Random = UnityEngine.Random;
@@ -93,6 +94,7 @@ namespace CustomAvatars
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
         public ModSetting<bool> toggleVisibleToOthers;
+        public ModSetting<bool> toggleInMatch;
         public ModSetting<bool> logAvatarStats;
         public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
@@ -100,6 +102,7 @@ namespace CustomAvatars
 
         public ModSetting<bool> perPlayerHeader;
         public Dictionary<CustomRig, ModSetting<bool>> perPlayerToggles = new();
+        private Dictionary<int, object> lastAvatars = new();
         
         public ModSetting<bool> UploadAvatar;
 
@@ -128,7 +131,6 @@ namespace CustomAvatars
         {
             currentScene = sceneName;
             sceneInitialized = false;
-            ranOnce = false;
 
             RigManager.rigs.Clear();
             Patches.loadedPlayers.Clear();
@@ -154,10 +156,11 @@ namespace CustomAvatars
         public void Initialize()
         {
             RigManager.ClearRigs();
+            lastAvatars.Clear();
 
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             Directory.CreateDirectory(filePath);
-
+            
             ApplyAvatars(true);
 
             if (currentScene == "Gym" && !sceneInitialized)
@@ -237,14 +240,14 @@ namespace CustomAvatars
             
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
-                if (!(bool)toggleLocal.SavedValue)
+                if ((currentScene is "Map0" or "Map1" && !(bool)toggleInMatch.SavedValue) || !(bool)toggleLocal.SavedValue)
                     customRig.Apply(CustomRig.RigState.Original);
                 else
                     customRig.Apply(CustomRig.RigState.Rigged);
 
                 if (currentScene != "Gym")
                 {
-                    var props = new Il2CppExitGames.Client.Photon.Hashtable();
+                    var props = new Hashtable();
                     props["CA_Avatar"] = (bool)toggleVisibleToOthers.SavedValue;
                     
                     PhotonNetwork.LocalPlayer.SetCustomProperties(props);
@@ -343,6 +346,30 @@ namespace CustomAvatars
                     }
                 }
             }
+
+            if (currentScene != "Gym")
+            {
+                foreach (var player in PhotonNetwork.PlayerList)
+                {
+                    if (player.CustomProperties == null) return;
+
+                    if (player.CustomProperties.TryGetValue("CA_Avatar", out var value))
+                    {
+                        if (!lastAvatars.TryGetValue(player.ActorNumber, out var old) || !Equals(old, value))
+                        {
+                            lastAvatars[player.ActorNumber] = value;
+                            
+                            Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
+                            if (rumblePlayer?.Controller == null) return;
+                            
+                            var rig = rumblePlayer.Controller.GetComponent<CustomRig>();
+                            if (rig == null) return;
+
+                            RigManager.ResolveRigState(rumblePlayer, rig);
+                        }
+                    }
+                }
+            }
         }
 
         public void AddRigToList(CustomRig rig)
@@ -354,7 +381,7 @@ namespace CustomAvatars
                 if (perPlayerToggles.Count == 0)
                     perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Toggles", false, 0, "", new Tags { DoNotSave = true });
 
-                var setting = mod.AddToList($"{rig.PlayerName} ({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
+                var setting = mod.AddToList($"{rig.PlayerName} <#FFFFFF>({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
 
                 setting.SavedValueChanged += (sender, args) =>
                 {
@@ -407,6 +434,7 @@ namespace CustomAvatars
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles whether you see your custom avatar locally. This does not affect what other players see.", new Tags());
             toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles whether you can see other players' custom avatars.", new Tags());
             toggleVisibleToOthers = mod.AddToList("Let Others See My Avatar", true, 0, "Controls whether other players can see your custom avatar. This setting is networked.", new Tags());
+            toggleInMatch = mod.AddToList("Toggle In Match", true, 0, "Toggles whether or not Custom Avatars will be loaded in matches.", new Tags());
 
             mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
             logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
@@ -448,8 +476,8 @@ namespace CustomAvatars
                     if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId) continue;
                     if (rig.Key == "Preview Controller (Dressing Room)") continue;
 
-                    var setting = perPlayerToggles.FirstOrDefault(s => s.Key.PlayerId == rig.Key).Value;
-                    rig.Value?.Apply(enabled && (setting?.GetValue() ?? false) ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                    var player = Calls.Players.GetAllPlayers().ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == rig.Key);
+                    RigManager.ResolveRigState(player, rig.Value);
                 }
                 
                 RegeneratePortraits();
@@ -481,6 +509,22 @@ namespace CustomAvatars
                 }
 
                 RegeneratePortraits();
+            };
+
+            toggleInMatch.SavedValueChanged += (sender, args) =>
+            {
+                if (currentScene is "Map0" or "Map1")
+                {
+                    bool enabled = (bool)toggleInMatch.Value;
+                    
+                    foreach (var rig in RigManager.rigs)
+                    {
+                        var player = Calls.Players.GetAllPlayers().ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == rig.Key);
+                        RigManager.ResolveRigState(player, rig.Value);
+                    }
+                
+                    RegeneratePortraits();
+                }
             };
 
             toggleVisibleToOthers.SavedValueChanged += (sender, args) =>
@@ -662,23 +706,26 @@ namespace CustomAvatars
             OriginalBones = renderer.bones ?? Array.Empty<Transform>();
             MeshRenderer = renderer;
 
-            try
+            if (!IsPreview)
             {
-                var target = transform.GetChild(2).GetChild(0).GetChild(0).GetChild(2);
-                if (IsLocal)
+                try
                 {
-                    localRecorder = target.GetComponent<Recorder>();
+                    var target = transform.GetChild(2).GetChild(0).GetChild(0).GetChild(2);
+                    if (IsLocal)
+                    {
+                        localRecorder = target.GetComponent<Recorder>();
+                    }
+                    else
+                    {
+                        remoteSpeaker = target.GetComponent<Speaker>();
+                        remoteAudioSource = remoteSpeaker.GetComponent<AudioSource>();
+                    }
                 }
-                else
+                catch
                 {
-                    remoteSpeaker = target.GetComponent<Speaker>();
-                    remoteAudioSource = remoteSpeaker.GetComponent<AudioSource>();
+                    if (log)
+                        Main.instance.LoggerInstance.Warning("CaptureOriginal: Recorder/Speaker hierarchy is missing or malformed.");
                 }
-            }
-            catch
-            {
-                if (log)
-                    Main.instance.LoggerInstance.Warning("CaptureOriginal: Recorder/Speaker hierarchy is missing or malformed.");
             }
         }
 

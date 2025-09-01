@@ -11,6 +11,7 @@ using MelonLoader;
 using RumbleModdingAPI;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
+using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 
 namespace CustomAvatars;
 
@@ -36,29 +37,6 @@ public class Patches
                 }
             })
         );
-    }
-
-    [HarmonyPatch(typeof(MonoBehaviourPunCallbacks), nameof(MonoBehaviourPunCallbacks.OnPlayerPropertiesUpdate))]
-    public static class PlayerPropsChanged
-    {
-        static void Postfix(Il2CppPhoton.Realtime.Player targetPlayer, Hashtable changedProps)
-        {
-            if (changedProps.ContainsKey("CA_Avatar"))
-            {
-                MelonLogger.Msg($"Player with rig has changed props.");
-                
-                var rumblePlayer = Calls.Players.GetPlayerByActorNo(targetPlayer.actorNumber);
-
-                if (rumblePlayer != null)
-                {
-                    var rig = rumblePlayer.Controller.GetComponent<CustomRig>();
-                    if (rig != null)
-                    {
-                        RigManager.ResolveRigState(rumblePlayer, rig);
-                    }
-                }
-            }
-        }
     }
     
     [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.Initialize), new[] { typeof(Player) })]
@@ -101,6 +79,7 @@ public class Patches
                 }
 
                 RigManager.rigs.Remove(leftId);
+                loadedPlayers.Remove(leftId);
             }
         }
     }

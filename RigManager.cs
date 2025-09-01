@@ -370,7 +370,7 @@ public static class RigManager
 
     public static void ResolveRigState(Player player, CustomRig rig)
     {
-        if (!(bool)Main.instance.toggleOthers.SavedValue)
+        if (!(bool)Main.instance.toggleOthers.SavedValue || (!(bool)Main.instance.toggleInMatch.SavedValue && Main.instance.currentScene is "Map0" or "Map1"))
         {
             rig.Apply(CustomRig.RigState.Original);
         }
@@ -443,18 +443,22 @@ public static class RigManager
         else
         {
             var rumbleBones = rumbleRoot.GetComponentsInChildren<Transform>(true)
-                .ToDictionary(t => t.name, t => t);
+                .GroupBy(t => t.name)
+                .ToDictionary(g => g.Key, g => g.ToList());
 
             foreach (var rigBone in rigRoot.GetComponentsInChildren<Transform>(true))
             {
-                if (rumbleBones.TryGetValue(rigBone.name, out var rumbleBone))
+                if (rumbleBones.TryGetValue(rigBone.name, out var rumbleMatches))
                 {
-                    rigBone.SetParent(rumbleBone, true);
-                    rigBone.localPosition = Vector3.zero;
-                    rigBone.localRotation = Quaternion.identity;
-                    rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
+                    foreach (var rumbleBone in rumbleMatches)
+                    {
+                        rigBone.SetParent(rumbleBone, true);
+                        rigBone.localPosition = Vector3.zero;
+                        rigBone.localRotation = Quaternion.identity;
+                        rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
                     
-                    rigBone.gameObject.AddComponent<CustomRigBone>();
+                        rigBone.gameObject.AddComponent<CustomRigBone>();
+                    }
                 }
             }
         }
@@ -507,6 +511,9 @@ public static class RigManager
                 rig.transform,
                 skeletonRoot
             );
+
+            foreach (var collider in customRigTransform.GetComponentsInChildren<Collider>(true))
+                GameObject.Destroy(collider);
 
             if (rigRenderer.sharedMesh != null)
                 if (customRig.Config.swapOriginalMesh) playerRenderer.sharedMesh = rigRenderer.sharedMesh;
