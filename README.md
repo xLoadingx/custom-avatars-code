@@ -69,7 +69,7 @@ If your rig cannot be set as **Humanoid** (for example, if it has fewer than 15 
 In this case, each bone you want to follow in-game needs to be renamed to match the bone used by RUMBLE's rig.
 You can find the full list of valid bone names [here](https://github.com/xLoadingx/custom-avatars-code/blob/main/TutorialAssets/BoneList.md)
 
-I won't be covering fixess for specific FBX/rigging errors here, but you can usually find a solution online, or ask in the Discord!
+I won't be covering fixes for specific FBX/rigging errors here, but you can usually find a solution online, or ask in the Discord!
 
 6. In your assets folder, go to Create -> CustomAvatars -> AvatarDescriptor. Select the new descriptor (you can name it anything), and assign your newly created Prefab Variant to the top 'Avatar Prefab' slot.
 
@@ -82,7 +82,7 @@ I won't be covering fixess for specific FBX/rigging errors here, but you can usu
     - Body Material: Sadly, Rock Cam only currently supports one material for the player. The material you select here will be the one that shows in Rock Cam. **MAKE SURE** the shader is uses has a "IsLocal" bool that toggles the head on and off. You can either use the sample shaders provided in the 'CustomAvatarsSDK' folder, or make your own (Shader Graph or HLSL works fine).
 
     - BlendShapes (if your avatar has them);
-        - Blink Type: A simple option, which depends if your eyes have seperate blendshapes for blinking, or the same one. You can select them accordingly.
+        - Blink Type: A simple option, which depends if your eyes have separate blendshapes for blinking, or the same one. You can select them accordingly.
             - Single: Select your single blendshape for blinking
             - Left & Right: Select your blinking blendshapes for the corresponding eye.
         
@@ -94,8 +94,12 @@ I won't be covering fixess for specific FBX/rigging errors here, but you can usu
             - Blink speed: How long each blink takes (in seconds).
 
         - Default BlendShapes
-            - This is a list of blendshapes that it sets defaultly when you load in. If you have any blendshapes you want to toggle, set them here.
+            - This is a list of blendshapes that it sets when you load in. If you have any blendshapes you want other people to see, set them here.
             - You can click "Add BlendShape" and set the values accordingly. If you want to take them from blender, make sure to multiply them by 100, as Unity uses 0-100, rather than Blender's 0-1.
+        
+
+- An update for this mod might include new settings for the avatar descriptor (should be in the changelog if I can remember...) 
+  - To update this in your unity project, simply delete the 'CustomAvatarsSDK' folder, and download the new unity package from the link above.
 
 **Once you're done with all of these settings, you can hit the 'Export Config' button to choose the location you want to save. The location does not matter.**
 
@@ -104,7 +108,7 @@ Anything really that you know how to do. However, the one limitation with this m
 
 ### Step 6 - Build Asset Bundle
 1. Custom Avatars (top bar) -> RUMBLE Avatar Builder -> Drag in your Avatar's Avatar Descriptor.
-2. Set your output path (preferablly your CustomAvatars folder: 'RUMBLE/UserData/CustomAvatars'), and then hit 'Build Bundle'.
+2. Set your output path (preferably your CustomAvatars folder: 'RUMBLE/UserData/CustomAvatars'), and then hit 'Build Bundle'.
 
 If you did not set it to your CustomAvatars folder, you'll have to drag it in manually.
 
