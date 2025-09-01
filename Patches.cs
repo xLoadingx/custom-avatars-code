@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using HarmonyLib;
+using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.MeshGeneration;
 using Il2CppRUMBLE.Players;
@@ -35,6 +36,29 @@ public class Patches
                 }
             })
         );
+    }
+
+    [HarmonyPatch(typeof(MonoBehaviourPunCallbacks), nameof(MonoBehaviourPunCallbacks.OnPlayerPropertiesUpdate))]
+    public static class PlayerPropsChanged
+    {
+        static void Postfix(Il2CppPhoton.Realtime.Player targetPlayer, Hashtable changedProps)
+        {
+            if (changedProps.ContainsKey("CA_Avatar"))
+            {
+                MelonLogger.Msg($"Player with rig has changed props.");
+                
+                var rumblePlayer = Calls.Players.GetPlayerByActorNo(targetPlayer.actorNumber);
+
+                if (rumblePlayer != null)
+                {
+                    var rig = rumblePlayer.Controller.GetComponent<CustomRig>();
+                    if (rig != null)
+                    {
+                        RigManager.ResolveRigState(rumblePlayer, rig);
+                    }
+                }
+            }
+        }
     }
     
     [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.Initialize), new[] { typeof(Player) })]

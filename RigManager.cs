@@ -347,33 +347,7 @@ public static class RigManager
 
                 Main.instance.AddRigToList(customRig);
 
-                if (!(bool)Main.instance.toggleOthers.SavedValue)
-                {
-                    rig.Apply(CustomRig.RigState.Original);
-                }
-                else if (player.Controller.GetComponent<PhotonView>().Controller.CustomProperties
-                         .TryGetValue("CA_Rigged", out var val))
-                {
-                    bool rigged = val.Unbox<bool>();
-
-                    if (!rigged)
-                    {
-                        rig.Apply(CustomRig.RigState.Original);
-                    } else if (Main.instance.perPlayerToggles.TryGetValue(rig, out var toggle))
-                    {
-                        rig.Apply((bool)toggle.SavedValue
-                            ? CustomRig.RigState.Rigged
-                            : CustomRig.RigState.Original);
-                    }
-                    else
-                    {
-                        rig.Apply(CustomRig.RigState.Rigged);
-                    }
-                }
-                else
-                {
-                    rig.Apply(CustomRig.RigState.Original);
-                }
+                ResolveRigState(player, rig);
             }
 
             var camObj = GameObject.Find($"RumbleHud_{playerID}_portraitCamera");
@@ -391,6 +365,37 @@ public static class RigManager
         {
             activeLoads--;
             loadingPlayers.Remove(playerID);
+        }
+    }
+
+    public static void ResolveRigState(Player player, CustomRig rig)
+    {
+        if (!(bool)Main.instance.toggleOthers.SavedValue)
+        {
+            rig.Apply(CustomRig.RigState.Original);
+        }
+        else if (player.Controller.GetComponent<PhotonView>().Controller.CustomProperties
+                 .TryGetValue("CA_Avatar", out var val))
+        {
+            bool rigged = val.Unbox<bool>();
+
+            if (!rigged)
+            {
+                rig.Apply(CustomRig.RigState.Original);
+            } else if (Main.instance.perPlayerToggles.TryGetValue(rig, out var toggle))
+            {
+                rig.Apply((bool)toggle.SavedValue
+                    ? CustomRig.RigState.Rigged
+                    : CustomRig.RigState.Original);
+            }
+            else
+            {
+                rig.Apply(CustomRig.RigState.Rigged);
+            }
+        }
+        else
+        {
+            rig.Apply(CustomRig.RigState.Original);
         }
     }
 

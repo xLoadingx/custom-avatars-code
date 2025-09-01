@@ -92,6 +92,7 @@ namespace CustomAvatars
         public ModSetting<string> reloadKeybind;
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
+        public ModSetting<bool> toggleVisibleToOthers;
         public ModSetting<bool> logAvatarStats;
         public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
@@ -244,7 +245,7 @@ namespace CustomAvatars
                 if (currentScene != "Gym")
                 {
                     var props = new Il2CppExitGames.Client.Photon.Hashtable();
-                    props["CA_Avatar"] = (bool)toggleLocal.SavedValue;
+                    props["CA_Avatar"] = (bool)toggleVisibleToOthers.SavedValue;
                     
                     PhotonNetwork.LocalPlayer.SetCustomProperties(props);
                 }
@@ -386,6 +387,13 @@ namespace CustomAvatars
             }
         }
 
+        public void RegeneratePortraits()
+        {
+            var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
+            var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
+            method?.Invoke(null, new object[] { currentScene == "Gym" });
+        }
+
         public void OnUIInitialized()
         {
             mod.ModName = "<b><#6A5ACD>Custom Avatars</color></b>";
@@ -396,8 +404,9 @@ namespace CustomAvatars
             reloadKeybind = mod.AddToList("Reload Keybind", nameof(KeyCode.R), "The key that reloads your and other's avatars.", new Tags());
             
             mod.AddToList("<b><#114F11>- Avatar Visibility</color></b>", false, 0, "", new Tags { DoNotSave = true });
-            toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles custom avatars for yourself.", new Tags());
-            toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles custom avatars for others.", new Tags());
+            toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles whether you see your custom avatar locally. This does not affect what other players see.", new Tags());
+            toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles whether you can see other players' custom avatars.", new Tags());
+            toggleVisibleToOthers = mod.AddToList("Let Others See My Avatar", true, 0, "Controls whether other players can see your custom avatar. This setting is networked.", new Tags());
 
             mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
             logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
@@ -442,6 +451,8 @@ namespace CustomAvatars
                     var setting = perPlayerToggles.FirstOrDefault(s => s.Key.PlayerId == rig.Key).Value;
                     rig.Value?.Apply(enabled && (setting?.GetValue() ?? false) ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                 }
+                
+                RegeneratePortraits();
             };
             
             toggleLocal.SavedValueChanged += (sender, args) =>
@@ -458,7 +469,6 @@ namespace CustomAvatars
                         
                         rig.Value?.Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                     }
-                        
                 }
 
                 if (currentScene == "Gym")
@@ -469,11 +479,18 @@ namespace CustomAvatars
                     refreshAvatarButton?.SetActive(enabled);
                     avatarOptimizationParent?.SetActive(enabled);
                 }
-                    
 
-                var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
-                var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
-                method?.Invoke(null, new object[] { currentScene == "Gym" });
+                RegeneratePortraits();
+            };
+
+            toggleVisibleToOthers.SavedValueChanged += (sender, args) =>
+            {
+                if (currentScene != "Gym")
+                {
+                    var props = new Il2CppExitGames.Client.Photon.Hashtable();
+                    props["CA_Avatar"] = (bool)toggleVisibleToOthers.Value;
+                    PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+                }
             };
 
             logAvatarStats.SavedValueChanged += (sender, args) =>
