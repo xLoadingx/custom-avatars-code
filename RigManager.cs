@@ -230,29 +230,29 @@ public static class RigManager
             string opponentPath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             if (!Directory.Exists(opponentPath)) Directory.CreateDirectory(opponentPath);
 
+            string basePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars");
+
             string filePath = isLocal
-                ? Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault())
+                ? Directory.GetFiles(basePath, "*.rumbleavatar").FirstOrDefault()
                 : Path.Combine(opponentPath, playerID);
-            if (!isLocal && !File.Exists(Path.Combine(opponentPath, playerID)))
+
+            if (!isLocal && !File.Exists(filePath))
             {
                 if (log)
                     Main.instance.LoggerInstance.Msg($"Downloading avatar for path {opponentPath}");
 
-                yield return MelonCoroutines.Start(
-                    RemoteAvatarLoader.DownloadToFile(playerID, filePath));
+                yield return MelonCoroutines.Start(RemoteAvatarLoader.DownloadToFile(playerID, filePath));
             }
-
-            string basePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars");
+            
             string rigPath = isLocal
                 ? Directory.GetFiles(basePath, "*.rumbleavatar").FirstOrDefault()
                 : Path.Combine(basePath, "Opponents", playerID);
 
             if (string.IsNullOrEmpty(rigPath) || !File.Exists(rigPath))
             {
-                Main.instance.LoggerInstance.Warning(
-                    $"No custom avatar found for {(isLocal ? "you" : player?.Data?.GeneralData?.PublicUsername ?? "unknown")} at {rigPath}");
+                Main.instance.LoggerInstance.Warning($"No custom avatar found for {(isLocal ? "you" : player?.Data.GeneralData?.PublicUsername ?? "unknown")} at {rigPath}");
                 yield break;
-            }
+            } 
 
             AssetBundle rigBundle = null;
             yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath,
@@ -370,12 +370,17 @@ public static class RigManager
 
     public static void ResolveRigState(Player player, CustomRig rig)
     {
-        if (!(bool)Main.instance.toggleOthers.SavedValue || (!(bool)Main.instance.toggleInMatch.SavedValue && Main.instance.currentScene is "Map0" or "Map1"))
+        if (!(bool)Main.instance.toggleOthers.SavedValue ||
+            (!(bool)Main.instance.toggleInMatch.SavedValue && Main.instance.currentScene is "Map0" or "Map1"))
         {
             rig.Apply(CustomRig.RigState.Original);
+            return;
         }
-        else if (player.Controller.GetComponent<PhotonView>().Controller.CustomProperties
-                 .TryGetValue("CA_Avatar", out var val))
+
+        var view = player?.Controller?.GetComponent<PhotonView>();
+        var props = view?.Controller?.CustomProperties;
+
+        if (props != null && props.TryGetValue("CA_Avatar", out var val))
         {
             bool rigged = val.Unbox<bool>();
 

@@ -274,12 +274,13 @@ namespace CustomAvatars
                     else
                     {
                         previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
+                        previewCustomRig.IsPreview = true;
                         previewCustomRig.PlayerName = "Preview Controller (Dressing Room)";
                         previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr, log);
                     }
 
                     previewCustomRig.CaptureRig(newRig);
-                    previewCustomRig.IsPreview = true;
+                    
                     previewCustomRig.Config = customRig.Config;
                 
                     RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, previewController.GetComponent<Animator>(), customRig: previewCustomRig);
@@ -351,7 +352,7 @@ namespace CustomAvatars
             {
                 foreach (var player in PhotonNetwork.PlayerList)
                 {
-                    if (player.CustomProperties == null) return;
+                    if (player.CustomProperties == null) continue;
 
                     if (player.CustomProperties.TryGetValue("CA_Avatar", out var value))
                     {
@@ -360,10 +361,10 @@ namespace CustomAvatars
                             lastAvatars[player.ActorNumber] = value;
                             
                             Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
-                            if (rumblePlayer?.Controller == null) return;
+                            if (rumblePlayer?.Controller == null) continue;
                             
                             var rig = rumblePlayer.Controller.GetComponent<CustomRig>();
-                            if (rig == null) return;
+                            if (rig == null) continue;
 
                             RigManager.ResolveRigState(rumblePlayer, rig);
                         }
