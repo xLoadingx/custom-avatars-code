@@ -2,6 +2,7 @@
 using System.Reflection;
 using CustomAvatars;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Il2CppPhoton.Pun;
 using Il2CppPhoton.Voice.Unity;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Interactions.InteractionBase;
@@ -88,6 +89,7 @@ namespace CustomAvatars
         public GameObject refreshAvatarButton;
 
         public Mod mod = new Mod();
+        public ModSetting<string> reloadKeybind;
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
         public ModSetting<bool> logAvatarStats;
@@ -96,7 +98,9 @@ namespace CustomAvatars
         public ModSetting<int> maxConcurrentDownloads;
 
         public ModSetting<bool> perPlayerHeader;
+        public ModSetting<bool> paramsHeader;
         public Dictionary<CustomRig, ModSetting<bool>> perPlayerToggles = new();
+        public List<ModSetting> avatarSettings = new();
         
         public ModSetting<bool> UploadAvatar;
 
@@ -155,7 +159,7 @@ namespace CustomAvatars
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             Directory.CreateDirectory(filePath);
 
-            MelonCoroutines.Start(WaitAndApplyAvatars());
+            ApplyAvatars(true);
 
             if (currentScene == "Gym" && !sceneInitialized)
             {
@@ -180,7 +184,6 @@ namespace CustomAvatars
                 text.ForceMeshUpdate();
 
                 avatarOptimizationParent = new GameObject("AvatarDetails");
-                avatarOptimizationParent.transform.SetParent(rigParent.transform);
                 avatarOptimizationParent.transform.localPosition = new Vector3(-2.9091f, 1.4218f, -1.5964f);
                 avatarOptimizationParent.transform.localScale = Vector3.one * 0.5f;
                 avatarOptimizationParent.transform.localRotation = Quaternion.Euler(0f, 206.6199f, 0f);
@@ -206,14 +209,6 @@ namespace CustomAvatars
             
             sceneInitialized = true;
         }
-        
-        // Oh god this is so bad but it works
-        public IEnumerator WaitAndApplyAvatars()
-        {
-            ApplyAvatars(true);
-            yield return new WaitForEndOfFrame();
-            ApplyAvatars(false);
-        }
 
         public void ApplyAvatars(bool log = true)
         {
@@ -235,6 +230,11 @@ namespace CustomAvatars
                     log
                 );
             }
+            else
+            {
+                if (customRig.blinkCoroutine != null)
+                    MelonCoroutines.Stop(customRig.blinkCoroutine);
+            }
             
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
@@ -242,6 +242,60 @@ namespace CustomAvatars
                     customRig.Apply(CustomRig.RigState.Original);
                 else
                     customRig.Apply(CustomRig.RigState.Rigged);
+
+                if (currentScene != "Gym")
+                {
+                    var props = new Il2CppExitGames.Client.Photon.Hashtable();
+                    props["CA_Avatar"] = (bool)toggleLocal.SavedValue;
+                    
+                    PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+                }
+
+                // if (paramsHeader != null)
+                // {
+                //     mod.Settings.Remove(paramsHeader);
+                //     paramsHeader = null;
+                // }
+                //
+                // foreach (var setting in avatarSettings.ToList())
+                // {
+                //     mod.Settings.Remove(setting);
+                //     avatarSettings.Remove(setting);
+                // }
+                //
+                // if (customRig.Config.parameters.Count > 0)
+                //     paramsHeader = mod.AddToList("<b><#8b42ff>- Avatar Settings", false, 0, "", new Tags { DoNotSave = true });
+                // foreach (var param in customRig.Config.parameters)
+                // {
+                //     ModSetting setting = param.type switch
+                //     {
+                //         ParamType.Bool => mod.AddToList(param.uiLabel, false, 0, "", new Tags()),
+                //         ParamType.Float => mod.AddToList(param.uiLabel, 0f, "", new Tags()),
+                //         ParamType.Int => mod.AddToList(param.uiLabel, 0, "", new Tags()),
+                //         _ => throw new ArgumentOutOfRangeException()
+                //     };
+                //
+                //     avatarSettings.Add(setting);
+                //
+                //     setting.SavedValueChanged += (sender, args) =>
+                //     {
+                //         Animator anim = customRig.Root.GetComponent<Animator>();
+                //         switch (param.type)
+                //         {
+                //             case ParamType.Bool:
+                //                 anim.SetBool(param.name, (bool)setting.Value);
+                //                 break;
+                //             case ParamType.Float:
+                //                 anim.SetFloat(param.name, (float)setting.Value);
+                //                 break;
+                //             case ParamType.Int:
+                //                 anim.SetInteger(param.name, (int)setting.Value);
+                //                 break;
+                //             default:
+                //                 throw new ArgumentOutOfRangeException();
+                //         }
+                //     };
+                // }
                 
                 if (currentScene == "Gym" && rig != null)
                 {
@@ -249,7 +303,7 @@ namespace CustomAvatars
                         Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
 
                     GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
-                        Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig"), "Rig");
+                        Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
 
                     newRig.name = "RIG - Preview Controller (Dressing Room)";
                     newRig.transform.SetParent(rigParent.transform, true);
@@ -257,15 +311,22 @@ namespace CustomAvatars
                     var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
                     var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
                     if (previewCustomRig != null)
-                        GameObject.Destroy(previewCustomRig);
-                    
-                    previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
-                    previewCustomRig.PlayerName = "Preview Controller (Dressing Room)";
-                    previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr, log);
+                    {
+                        if (previewCustomRig.blinkCoroutine != null)
+                            MelonCoroutines.Stop(previewCustomRig.blinkCoroutine);
+                    }
+                    else
+                    {
+                        previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
+                        previewCustomRig.PlayerName = "Preview Controller (Dressing Room)";
+                        previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr, log);
+                    }
+
                     previewCustomRig.CaptureRig(newRig);
+                    previewCustomRig.IsPreview = true;
                     previewCustomRig.Config = customRig.Config;
                 
-                    RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, customRig: previewCustomRig);
+                    RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, previewController.GetComponent<Animator>(), customRig: previewCustomRig);
                     RigManager.rigs["Preview Controller (Dressing Room)"] = previewCustomRig;
                     
                     if (!(bool)toggleLocal.SavedValue)
@@ -297,23 +358,35 @@ namespace CustomAvatars
 
         public override void OnUpdate()
         {
-            if (Input.GetKeyDown(KeyCode.R))
+            if (reloadKeybind != null && Enum.TryParse((string)reloadKeybind.SavedValue, true, out KeyCode parsed))
             {
-                Initialize();
-
-                if (Calls.Players.GetAllPlayers().Count > 1)
+                if (Input.GetKeyDown(parsed))
                 {
-                    var players = Calls.Players.GetAllPlayers().ToArray();
-                    foreach (var rig in RigManager.rigs)
-                    {
-                        if (rig.Value?.IsLocal ?? true) return;
-                    
-                        if (File.Exists(rig.Value.AvatarFilePath))
-                            File.Delete(rig.Value.AvatarFilePath);
+                    Initialize();
 
-                        var player = players.FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == rig.Key);
-                        if (player != null)
-                            Patches.ApplyRig(player);
+                    var players = Calls.Players.GetAllPlayers().ToArray();
+                    var rigsSnapshot = RigManager.rigs.ToArray();
+
+                    foreach (var kv in rigsSnapshot)
+                    {
+                        var id = kv.Key;
+                        var rig = kv.Value;
+
+                        if (rig == null || rig.IsLocal) continue;
+
+                        var player = rig.GetComponent<PlayerController>()?.assignedPlayer ?? Calls.Players.GetAllPlayers()
+                            .ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == id);
+                        if (player == null) continue;
+                    
+                        if (!string.IsNullOrEmpty(rig.AvatarFilePath) && File.Exists(rig.AvatarFilePath))
+                            try { File.Delete(rig.AvatarFilePath); } catch {}
+
+                        rig.Apply(CustomRig.RigState.Original);
+                        RigManager.rigs.Remove(id);
+                        GameObject.Destroy(rig.Root);
+                        GameObject.Destroy(rig);
+                    
+                        Patches.ApplyRig(player);
                     }
                 }
             }
@@ -323,12 +396,12 @@ namespace CustomAvatars
         {
             try
             {
-                string playerName = string.IsNullOrEmpty(rig.PlayerName) ? "Unnamed Player" : rig.PlayerName;
+                if (string.IsNullOrEmpty(rig.PlayerName)) return;
 
                 if (perPlayerToggles.Count == 0)
                     perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Toggles", false, 0, "", new Tags { DoNotSave = true });
 
-                var setting = mod.AddToList($"{playerName} ({rig.PlayerId})", true, 0, $"Toggles the avatar for {playerName}.", new Tags());
+                var setting = mod.AddToList($"{rig.PlayerName} ({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
 
                 setting.SavedValueChanged += (sender, args) =>
                 {
@@ -368,6 +441,7 @@ namespace CustomAvatars
                 
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
+            reloadKeybind = mod.AddToList("Reload Keybind", nameof(KeyCode.R), "The key that reloads your and other's avatars.", new Tags());
             
             mod.AddToList("<b><#114F11>- Avatar Visibility</color></b>", false, 0, "", new Tags { DoNotSave = true });
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles custom avatars for yourself.", new Tags());
@@ -388,7 +462,7 @@ namespace CustomAvatars
 
             UploadAvatar.SavedValueChanged += (sender, args) =>
             {
-                string rigBundle = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig");
+                string rigBundle = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault());
                 string masterId = Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId;
                 if (!File.Exists(rigBundle))
                 {
@@ -468,6 +542,7 @@ namespace CustomAvatars
     {
         public string PlayerId;
         public bool IsLocal;
+        public bool IsPreview;
         public string PlayerName;
         public string AvatarFilePath;
 
@@ -476,17 +551,12 @@ namespace CustomAvatars
         public GameObject Root;
         public GameObject PlayerRoot;
 
-        private object blinkCoroutine;
+        public object blinkCoroutine;
 
         private Speaker remoteSpeaker;
         private AudioSource remoteAudioSource;
         
         private Recorder localRecorder;
-
-        public float volumeMultiplier = 30f;
-
-        public List<TriggerCollider> triggerColliders = new();
-        public List<GrabbableObject> grabbableObjects = new();
 
         // --- Toggles for the two ---
         public Material OriginalMaterial;
@@ -494,7 +564,7 @@ namespace CustomAvatars
         public Mesh OriginalMesh;
         public Transform[] OriginalBones;
 
-        public Material RigMaterial;
+        public Material[] RigMaterials;
         public Material RigVisualsMaterial;
         public Mesh RigMesh;
         public Transform[] RigBones;
@@ -526,7 +596,7 @@ namespace CustomAvatars
             if (IsLocal && localRecorder?.LevelMeter != null)
             {
                 float volume = localRecorder.LevelMeter.CurrentAvgAmp;
-                weight = Mathf.Clamp01(volume * volumeMultiplier) * 100f;
+                weight = Mathf.Clamp01(volume * Config.voiceMultiplier) * 100f;
             }
             else if (!IsLocal && remoteSpeaker != null)
             {
@@ -547,7 +617,7 @@ namespace CustomAvatars
                     if (avgProp != null) volume = (float)avgProp.GetValue(lm);
                 }
 
-                weight = Mathf.Clamp01(volume * volumeMultiplier) * 100f;
+                weight = Mathf.Clamp01(volume * Config.voiceMultiplier) * 100f;
             }
             
             MeshRenderer.SetBlendShapeWeight(Config.jawOpenBlendshape, weight);
@@ -678,40 +748,6 @@ namespace CustomAvatars
             
             return grabbableObjects;
         }
- 
-        public List<TriggerCollider> ParseTriggerCollidersRecursive(Transform root, Transform rig)
-        {
-            var colliders = new List<TriggerCollider>();
-
-            for (int i = 0; i < root.childCount; i++)
-            {
-                var child = root.GetChild(i);
-                if (child.GetComponent<Collider>() != null)
-                {
-                    var triggerActions = new List<TriggerAction>();
-                    
-                    for (int j = 0; j < child.childCount; j++)
-                    {
-                        if (TriggerCollider.TryParseActionFromName(child.GetChild(j).name, out var action, rig.gameObject))
-                            triggerActions.Add(action);
-                    }
-
-                    if (triggerActions.Count > 0)
-                    {
-                        var collider = child.gameObject.AddComponent<TriggerCollider>();
-                        child.gameObject.layer = LayerMask.NameToLayer("InteractionBase");
-                        collider.meshRenderer = MeshRenderer;
-                        collider.triggerActions.AddRange(triggerActions);
-                        
-                        colliders.Add(collider);
-                    }
-                }
-                
-                colliders.AddRange(ParseTriggerCollidersRecursive(child, rig));
-            }
-
-            return colliders;
-        }
 
         public void Apply(RigState state)
         {
@@ -721,6 +757,7 @@ namespace CustomAvatars
                     MeshRenderer.materials = new Material[] { OriginalMaterial };
                     MeshRenderer.bones = OriginalBones;
                     MeshRenderer.sharedMesh = OriginalMesh;
+                    Root.SetActive(false);
                     
                     if (playerVisuals != null && IsLocal)
                         playerVisuals.NonHeadClippedMaterial = OriginalVisualsMaterial;
@@ -728,16 +765,21 @@ namespace CustomAvatars
                     if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
                     break;
                 case RigState.Rigged:
-                    MeshRenderer.material = RigMaterial;
-                    MeshRenderer.bones = RigBones;
-                    MeshRenderer.sharedMesh = RigMesh;
-                    
-                    if (playerVisuals != null && IsLocal)
-                        playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
+                    if (Config.swapOriginalMesh)
+                    {
+                        MeshRenderer.materials = RigMaterials;
+                        MeshRenderer.bones = RigBones;
+                        MeshRenderer.sharedMesh = RigMesh;
+                        
+                        if (playerVisuals != null && IsLocal)
+                            playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
+                    }
+                    Root.SetActive(true);
 
                     if (Config != null)
                     {
-                        MelonCoroutines.Start(ApplyDefaultBlendshapes());
+                        if (Config.swapOriginalMesh)
+                            MelonCoroutines.Start(ApplyDefaultBlendshapes());
                         
                         if (Config.autoBlink)
                         {
@@ -773,7 +815,7 @@ namespace CustomAvatars
                 float waitTime = UnityEngine.Random.Range(Config.blinkInterval.x, Config.blinkInterval.y);
                 yield return new WaitForSeconds(waitTime);
 
-                float blinkDuration = 0.05f;
+                float blinkDuration = Config.blinkSpeed;
 
                 switch ((AvatarDescriptorExport.BlinkType)Config.blinkType)
                 {
@@ -829,100 +871,14 @@ namespace CustomAvatars
             if (OriginalMesh) Destroy(OriginalMesh);
             if (OriginalMaterial) Destroy(OriginalMaterial);
             if (RigMesh) Destroy(RigMesh);
-            if (RigMaterial) Destroy(RigMaterial);
+
+            if (RigMaterials != null)
+            {
+                foreach (var mat in RigMaterials)
+                    Destroy(mat);
+            }
+            
             if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
         }
-    }
-}
-
-[RegisterTypeInIl2Cpp]
-public class TriggerCollider : MonoBehaviour
-{
-    public SkinnedMeshRenderer meshRenderer;
-    public List<TriggerAction> triggerActions = new();
-    public HashSet<GameObject> runningTempToggles = new();
-
-    public static bool TryParseActionFromName(string name, out TriggerAction action, GameObject rig = null)
-    {
-        action = default;
-        
-        if (string.IsNullOrEmpty(name)) { return false; }
-
-        var parts = name.Split(':');
-        if (parts.Length < 2)
-            return false;
-
-        if (!Enum.TryParse(parts[0], true, out TriggerActionType type))
-            return false;
-
-        string targetName = parts[1];
-
-        Transform target = null;
-        if (rig != null &&
-            type is (TriggerActionType.ToggleOff | TriggerActionType.ToggleOn | TriggerActionType.ToggleTemp))
-        {
-            target = RigManager.FindDeepChild(rig.transform, targetName);
-            if (target == null)
-                Main.instance.LoggerInstance.Warning($"TriggerAction target '{targetName}' not found under rig '{rig.name}'");
-        }
-        
-        float duration = (parts.Length >= 3 && float.TryParse(parts[2], out var d)) ? d : 0f;
-
-        action = new TriggerAction(type, targetName, duration, target?.gameObject);
-        return true;
-    }
-
-    public void OnTriggerEnter(Collider other)
-    {
-        MelonLogger.Msg($"OnTriggerEnter for collider {other.name}");
-        
-        foreach (var action in triggerActions)
-        {
-            if (action.Type is (TriggerActionType.ToggleOff | TriggerActionType.ToggleOn | TriggerActionType.ToggleTemp)
-                && action.TargetGameObject == null)
-            {
-                Main.instance.LoggerInstance.Warning($"TriggerAction of type {action.Type} has null target on {gameObject.name}");
-                continue;
-            }
-
-            switch (action.Type)
-            {
-                case TriggerActionType.ToggleOn:
-                    action.TargetGameObject.SetActive(true);
-                    break;
-                
-                case TriggerActionType.ToggleOff:
-                    action.TargetGameObject.SetActive(false);
-                    break;
-                
-                case TriggerActionType.ToggleTemp:
-                    MelonCoroutines.Start(ToggleTemp(action));
-                    break;
-                
-                case TriggerActionType.Blendshape:
-                    int index = meshRenderer.sharedMesh.GetBlendShapeIndex(action.TargetName);
-                    if (index == -1)
-                        Main.instance.LoggerInstance.Warning($"Blendshape '{action.TargetName}' not found on {meshRenderer.name}");
-                    else
-                        meshRenderer.SetBlendShapeWeight(index, 100f);
-
-                    break;
-                
-                default:
-                    throw new ArgumentOutOfRangeException();
-            }
-        }
-    }
-
-    public IEnumerator ToggleTemp(TriggerAction action)
-    {
-        if (!runningTempToggles.Add(action.TargetGameObject))
-            yield break;
-
-        action.TargetGameObject.SetActive(!action.TargetGameObject.activeSelf);
-        yield return new WaitForSeconds(action.Duration);
-        action.TargetGameObject.SetActive(!action.TargetGameObject.activeSelf);
-        
-        runningTempToggles.Remove(action.TargetGameObject);
     }
 }

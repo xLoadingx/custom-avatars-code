@@ -73,6 +73,9 @@ public class Patches
                 {
                     GameObject.Destroy(rigObj.Root);
                     Main.instance.RemoveRigFromList(rigObj);
+                    
+                    if (File.Exists(rigObj.AvatarFilePath) && __instance.ControllerType == ControllerType.Remote)
+                        File.Delete(rigObj.AvatarFilePath);
                 }
 
                 RigManager.rigs.Remove(leftId);

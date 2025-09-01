@@ -1,6 +1,8 @@
 using System.Collections;
 using System.Reflection;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
 using Il2CppTMPro;
@@ -228,29 +230,33 @@ public static class RigManager
             string opponentPath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             if (!Directory.Exists(opponentPath)) Directory.CreateDirectory(opponentPath);
 
-            string filePath = isLocal ? Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "rig") : Path.Combine(opponentPath, playerID);
+            string filePath = isLocal
+                ? Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault())
+                : Path.Combine(opponentPath, playerID);
             if (!isLocal && !File.Exists(Path.Combine(opponentPath, playerID)))
             {
                 if (log)
                     Main.instance.LoggerInstance.Msg($"Downloading avatar for path {opponentPath}");
-                
+
                 yield return MelonCoroutines.Start(
                     RemoteAvatarLoader.DownloadToFile(playerID, filePath));
             }
 
             string basePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars");
             string rigPath = isLocal
-                ? Directory.GetFiles(basePath).FirstOrDefault()
+                ? Directory.GetFiles(basePath, "*.rumbleavatar").FirstOrDefault()
                 : Path.Combine(basePath, "Opponents", playerID);
 
             if (string.IsNullOrEmpty(rigPath) || !File.Exists(rigPath))
             {
-                Main.instance.LoggerInstance.Warning($"No custom avatar found for {(isLocal ? "you" : player?.Data?.GeneralData?.PublicUsername ?? "unknown")} at {rigPath}");
+                Main.instance.LoggerInstance.Warning(
+                    $"No custom avatar found for {(isLocal ? "you" : player?.Data?.GeneralData?.PublicUsername ?? "unknown")} at {rigPath}");
                 yield break;
             }
 
             AssetBundle rigBundle = null;
-            yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath, (bundle) => { rigBundle = bundle; }));
+            yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath,
+                (bundle) => { rigBundle = bundle; }));
             GameObject rigPrefab = rigBundle?.LoadAsset<GameObject>("Rig");
             if (rigPrefab == null)
             {
@@ -282,16 +288,6 @@ public static class RigManager
                 yield break;
             }
 
-            try
-            {
-                customRig.grabbableObjects =
-                    customRig.ParseGrabbableObjectsRecursive(rigInstance.transform, player);
-            }
-            catch (Exception ex)
-            {
-                Main.instance.LoggerInstance.Error("Exception while parsing grabbable objects: " + ex);
-            }
-
             rigs[playerID] = customRig;
 
             TextAsset jsonAsset = rigBundle.LoadAsset<TextAsset>("Config");
@@ -305,7 +301,8 @@ public static class RigManager
             {
                 try
                 {
-                    AvatarDescriptorExport config = JsonConvert.DeserializeObject<AvatarDescriptorExport>(jsonAsset.text);
+                    AvatarDescriptorExport config =
+                        JsonConvert.DeserializeObject<AvatarDescriptorExport>(jsonAsset.text);
                     customRig.Config = config;
                 }
                 catch (Exception ex)
@@ -321,7 +318,8 @@ public static class RigManager
                     if (blendshape.index >= 0)
                         customRig.MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
                     else
-                        Main.instance.LoggerInstance.Warning($"Blendshape '{blendshape.name}' not found on mesh '{customRig.MeshRenderer.sharedMesh.name}'");
+                        Main.instance.LoggerInstance.Warning(
+                            $"Blendshape '{blendshape.name}' not found on mesh '{customRig.MeshRenderer.sharedMesh.name}'");
                 }
             }
 
@@ -340,13 +338,29 @@ public static class RigManager
                 LogStatsForAvatar(rigInstance);
 
             ApplyRigToPlayer(player, rigInstance, log);
-            
+
             if (!isLocal)
             {
                 string path = Path.Combine(basePath, "Opponents", playerID);
 
+                var rig = player.Controller.GetComponent<CustomRig>();
+
                 if (!(bool)Main.instance.toggleOthers.SavedValue)
-                    player.Controller.GetComponent<CustomRig>().Apply(CustomRig.RigState.Original);
+                {
+                    rig.Apply(CustomRig.RigState.Original);
+                }
+                else
+                {
+                    if (player.Controller.GetComponent<PhotonView>().Controller.CustomProperties.TryGetValue("CA_Rigged", out var val))
+                    {
+                        bool rigged = val.Unbox<bool>();
+                        rig.Apply(rigged ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                    }
+                    else
+                    {
+                        rig.Apply(CustomRig.RigState.Rigged);
+                    }
+                }
 
                 Main.instance.AddRigToList(customRig);
             }
@@ -382,34 +396,32 @@ public static class RigManager
         if (playerRenderer == null || rigRenderer == null) return;
 
         var playerRigRoot = player.Controller.transform.GetChild(1).GetChild(1);
-        ApplyRigToSMR(playerRigRoot, rig, player.Controller.GetComponent<CustomRig>(), visuals: player.Controller.GetSubsystem<PlayerVisuals>());
+        ApplyRigToSMR(playerRigRoot, rig, player.Controller.transform.GetChild(1).GetComponent<Animator>(), player.Controller.GetComponent<CustomRig>(), visuals: player.Controller.GetSubsystem<PlayerVisuals>());
         
         if (log)
             instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");
     }
 
-    public static void ApplyRigBones(Transform rigRoot, Transform playerRigRoot)
+    public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator)
     {
-        var playerBones = new Dictionary<string, Transform>(); 
-        foreach (var bone in playerRigRoot.GetComponentsInChildren<Transform>(true)) 
-            playerBones[bone.name] = bone;
-
-        foreach (var rigBone in rigRoot.GetComponentsInChildren<Transform>(true))
+        foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
         {
-            rigBone.gameObject.layer = LayerMask.NameToLayer("Default");
-            if (playerBones.TryGetValue(rigBone.name, out var playerBone))
-            {
-                rigBone.SetParent(playerBone, true); 
-                rigBone.localPosition = Vector3.zero; 
-                rigBone.localRotation = Quaternion.identity;
-                rigBone.localScale = Vector3.Scale(rigBone.localScale, playerBone.localScale);
-                
-                rigBone.gameObject.AddComponent<CustomRigBone>();
-            }
+            if (bone == HumanBodyBones.LastBone) continue;
+            
+            var rigBone = rigAnimator.GetBoneTransform(bone);
+            var rumbleBone = rumbleAnimator.GetBoneTransform(bone);
+
+            if (rigBone == null || rumbleBone == null)
+                continue;
+
+            rigBone.SetParent(rumbleBone, true);
+            rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
+
+            rigBone.gameObject.AddComponent<CustomRigBone>();
         }
     }
 
-    public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, CustomRig customRig = null, SkinnedMeshRenderer renderer = null, PlayerVisuals visuals = null)
+    public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, Animator rumbleAnimator, CustomRig customRig = null, RuntimeAnimatorController controller = null, SkinnedMeshRenderer renderer = null, PlayerVisuals visuals = null)
     {
         void ApplyRig(Transform customRigTransform, SkinnedMeshRenderer rigRenderer, SkinnedMeshRenderer playerRenderer, Material originalMaterial)
         {
@@ -446,19 +458,35 @@ public static class RigManager
 
             playerRenderer.enabled = false;
 
-            ApplyRigBones(customRigTransform, skeletonRoot);
+            foreach (var t in rig.GetComponentsInChildren<Collider>(true))
+                GameObject.Destroy(t);
 
-            customRig.triggerColliders = customRig.ParseTriggerCollidersRecursive(skeletonRoot, skeletonRoot);
+            Animator customRigAnimator = customRigTransform.GetComponentInParent<Animator>();
+            ApplyRigBones(
+                customRigAnimator,
+                rumbleAnimator);
+            
+            if (controller != null)
+                customRigAnimator.runtimeAnimatorController = controller;
+
+            foreach (var bone in skeletonRoot.GetComponentsInChildren<CustomRigBone>(true))
+            {
+                bone.transform.localPosition = Vector3.zero;
+                bone.transform.localRotation = Quaternion.identity;
+            }
 
             if (rigRenderer.sharedMesh != null)
-                playerRenderer.sharedMesh = rigRenderer.sharedMesh;
+                if (customRig.Config.swapOriginalMesh) playerRenderer.sharedMesh = rigRenderer.sharedMesh;
             else
                 Main.instance.LoggerInstance.Warning("rigRenderer.sharedMesh is null");
 
             if (rigRenderer.bones is { Length: > 0 })
             {
-                playerRenderer.bones = rigRenderer.bones;
-                customRig.RigBones = rigRenderer.bones;
+                if (customRig.Config.swapOriginalMesh)
+                {
+                    playerRenderer.bones = rigRenderer.bones;
+                    customRig.RigBones = rigRenderer.bones;
+                }
             }
             else
             {
@@ -523,7 +551,10 @@ public static class RigManager
                 newMats[i] = mat;
             }
 
-            playerRenderer.materials = newMats;
+            if (customRig.Config.swapOriginalMesh)
+                playerRenderer.materials = newMats;
+            else
+                rigRenderer.materials = newMats;
 
             if (visuals != null && customRig.IsLocal)
             {
@@ -535,8 +566,14 @@ public static class RigManager
             {
                 if (playerRenderer.material != null)
                 {
-                    customRig.RigMaterial = new Material(playerRenderer.material);
-                    customRig.RigMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+                    customRig.RigMaterials = new Material[playerRenderer.materials.Length];
+                    for (var index = 0; index < playerRenderer.materials.Count; index++)
+                    {
+                        var mat = playerRenderer.materials[index];
+                        customRig.RigMaterials[index] = mat;
+                        
+                        mat.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+                    }
                 }
                 else
                 {
@@ -554,7 +591,7 @@ public static class RigManager
                 }
             }
 
-            if (rigRenderer.gameObject != null)
+            if (rigRenderer.gameObject != null && customRig.Config.swapOriginalMesh)
                 GameObject.Destroy(rigRenderer.gameObject);
 
             playerRenderer.enabled = true;
@@ -603,18 +640,40 @@ public class AvatarDescriptorExport
         Single,
         LeftRight
     }
-    
-    public List<int> playerShaderSlots;
-    public int bodyShaderSlot;
-    public List<BlendshapeDefault> defaultBlendshapes;
-    public int blinkType;
-    public int blinkBlendshape;
-    public int blinkLeftBlendshape;
-    public int blinkRightBlendshape;
-    public int jawOpenBlendshape;
-    public bool autoBlink;
-    public Vector2 blinkInterval;
+
+    public bool swapOriginalMesh = true;
+    public List<int> playerShaderSlots = new();
+    public int bodyShaderSlot = -1;
+    public List<BlendshapeDefault> defaultBlendshapes = new();
+    public int blinkType = -1;
+    public int blinkBlendshape = -1;
+    public int blinkLeftBlendshape = -1;
+    public int blinkRightBlendshape = -1;
+    public int jawOpenBlendshape = -1;
+    public float voiceMultiplier = 30;
+    public bool autoBlink = false;
+    public Vector2 blinkInterval = Vector2.zero;
+    public float blinkSpeed = 0.05f;
+
+    // public List<AnimatorParam> parameters = new();
+    // public string animatorControllerName;
 }
+
+// public enum ParamType
+// {
+//     Bool,
+//     Float,
+//     Int
+// }
+//
+// [Serializable]
+// public class AnimatorParam
+// {
+//     public string name;
+//     public ParamType type;
+//     public bool networked = true;
+//     public string uiLabel;
+// }
 
 [Serializable]
 public class BlendshapeDefault

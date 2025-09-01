@@ -116,3 +116,7 @@ E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\UnityEngi
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\obj\Debug\net472\CustomAvatars.sourcelink.json
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Newtonsoft.Json.dll
 E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Il2CppPhotonVoice.PUN.dll
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Il2CppPhotonUnityNetworking.Utilities.dll
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Il2CppPhotonUtilities.dll
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Il2CppFloatCrusher.dll
+E:\Visual Studio Projects\CustomAvatars\CustomAvatars\bin\Debug\net472\Il2CppQuatCompress.dll
