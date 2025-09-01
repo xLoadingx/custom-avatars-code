@@ -30,8 +30,6 @@ public class Patches
                     customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
         
                     visuals.renderer.material = Main.poseGhostMaterial;
-
-                    Main.instance.AddRigToList(customRig);
                     
                     MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true, avatarDetails.returnedSha));
                 }

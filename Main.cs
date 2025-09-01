@@ -98,9 +98,7 @@ namespace CustomAvatars
         public ModSetting<int> maxConcurrentDownloads;
 
         public ModSetting<bool> perPlayerHeader;
-        public ModSetting<bool> paramsHeader;
         public Dictionary<CustomRig, ModSetting<bool>> perPlayerToggles = new();
-        public List<ModSetting> avatarSettings = new();
         
         public ModSetting<bool> UploadAvatar;
 
@@ -250,52 +248,6 @@ namespace CustomAvatars
                     
                     PhotonNetwork.LocalPlayer.SetCustomProperties(props);
                 }
-
-                // if (paramsHeader != null)
-                // {
-                //     mod.Settings.Remove(paramsHeader);
-                //     paramsHeader = null;
-                // }
-                //
-                // foreach (var setting in avatarSettings.ToList())
-                // {
-                //     mod.Settings.Remove(setting);
-                //     avatarSettings.Remove(setting);
-                // }
-                //
-                // if (customRig.Config.parameters.Count > 0)
-                //     paramsHeader = mod.AddToList("<b><#8b42ff>- Avatar Settings", false, 0, "", new Tags { DoNotSave = true });
-                // foreach (var param in customRig.Config.parameters)
-                // {
-                //     ModSetting setting = param.type switch
-                //     {
-                //         ParamType.Bool => mod.AddToList(param.uiLabel, false, 0, "", new Tags()),
-                //         ParamType.Float => mod.AddToList(param.uiLabel, 0f, "", new Tags()),
-                //         ParamType.Int => mod.AddToList(param.uiLabel, 0, "", new Tags()),
-                //         _ => throw new ArgumentOutOfRangeException()
-                //     };
-                //
-                //     avatarSettings.Add(setting);
-                //
-                //     setting.SavedValueChanged += (sender, args) =>
-                //     {
-                //         Animator anim = customRig.Root.GetComponent<Animator>();
-                //         switch (param.type)
-                //         {
-                //             case ParamType.Bool:
-                //                 anim.SetBool(param.name, (bool)setting.Value);
-                //                 break;
-                //             case ParamType.Float:
-                //                 anim.SetFloat(param.name, (float)setting.Value);
-                //                 break;
-                //             case ParamType.Int:
-                //                 anim.SetInteger(param.name, (int)setting.Value);
-                //                 break;
-                //             default:
-                //                 throw new ArgumentOutOfRangeException();
-                //         }
-                //     };
-                // }
                 
                 if (currentScene == "Gym" && rig != null)
                 {
@@ -718,11 +670,13 @@ namespace CustomAvatars
             Root = rig;
 
             var anim = rig.GetComponent<Animator>();
-            if (anim == null) { Main.instance.LoggerInstance.Error($"Animator doesn't exist"); return; };
-            if (!anim.isHuman)
+
+            if ((bool)Main.instance.logAvatarStats.SavedValue || (!IsLocal && (bool)Main.instance.logOtherAvatarStats.SavedValue))
             {
-                Main.instance.LoggerInstance.Error($"Loaded rig not marked as humanoid.");
-                return;
+                if (anim == null)
+                    Main.instance.LoggerInstance.Msg("Rig has no Animator, using raw transform capture.");
+                else if (!anim.isHuman)
+                    Main.instance.LoggerInstance.Msg("Rig Animator is not humanoid, using name-based capture.");
             }
 
             RigBones = rig.GetComponentsInChildren<Transform>();

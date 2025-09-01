@@ -345,24 +345,35 @@ public static class RigManager
 
                 var rig = player.Controller.GetComponent<CustomRig>();
 
+                Main.instance.AddRigToList(customRig);
+
                 if (!(bool)Main.instance.toggleOthers.SavedValue)
                 {
                     rig.Apply(CustomRig.RigState.Original);
                 }
-                else
+                else if (player.Controller.GetComponent<PhotonView>().Controller.CustomProperties
+                         .TryGetValue("CA_Rigged", out var val))
                 {
-                    if (player.Controller.GetComponent<PhotonView>().Controller.CustomProperties.TryGetValue("CA_Rigged", out var val))
+                    bool rigged = val.Unbox<bool>();
+
+                    if (!rigged)
                     {
-                        bool rigged = val.Unbox<bool>();
-                        rig.Apply(rigged ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                        rig.Apply(CustomRig.RigState.Original);
+                    } else if (Main.instance.perPlayerToggles.TryGetValue(rig, out var toggle))
+                    {
+                        rig.Apply((bool)toggle.SavedValue
+                            ? CustomRig.RigState.Rigged
+                            : CustomRig.RigState.Original);
                     }
                     else
                     {
                         rig.Apply(CustomRig.RigState.Rigged);
                     }
                 }
-
-                Main.instance.AddRigToList(customRig);
+                else
+                {
+                    rig.Apply(CustomRig.RigState.Original);
+                }
             }
 
             var camObj = GameObject.Find($"RumbleHud_{playerID}_portraitCamera");
@@ -402,26 +413,49 @@ public static class RigManager
             instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");
     }
 
-    public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator)
+    public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator, Transform rigRoot, Transform rumbleRoot)
     {
-        foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
+        if (rigAnimator != null && rigAnimator.isHuman)
         {
-            if (bone == HumanBodyBones.LastBone) continue;
+            foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
+            {
+                if (bone == HumanBodyBones.LastBone) continue;
             
-            var rigBone = rigAnimator.GetBoneTransform(bone);
-            var rumbleBone = rumbleAnimator.GetBoneTransform(bone);
+                var rigBone = rigAnimator.GetBoneTransform(bone);
+                var rumbleBone = rumbleAnimator.GetBoneTransform(bone);
 
-            if (rigBone == null || rumbleBone == null)
-                continue;
+                if (rigBone == null || rumbleBone == null)
+                    continue;
 
-            rigBone.SetParent(rumbleBone, true);
-            rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
+                rigBone.SetParent(rumbleBone, true);
+                rigBone.localPosition = Vector3.zero;
+                rigBone.localRotation = Quaternion.identity;
+                rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
 
-            rigBone.gameObject.AddComponent<CustomRigBone>();
+                rigBone.gameObject.AddComponent<CustomRigBone>();
+            }
+        }
+        else
+        {
+            var rumbleBones = rumbleRoot.GetComponentsInChildren<Transform>(true)
+                .ToDictionary(t => t.name, t => t);
+
+            foreach (var rigBone in rigRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (rumbleBones.TryGetValue(rigBone.name, out var rumbleBone))
+                {
+                    rigBone.SetParent(rumbleBone, true);
+                    rigBone.localPosition = Vector3.zero;
+                    rigBone.localRotation = Quaternion.identity;
+                    rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
+                    
+                    rigBone.gameObject.AddComponent<CustomRigBone>();
+                }
+            }
         }
     }
 
-    public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, Animator rumbleAnimator, CustomRig customRig = null, RuntimeAnimatorController controller = null, SkinnedMeshRenderer renderer = null, PlayerVisuals visuals = null)
+    public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, Animator rumbleAnimator = null, CustomRig customRig = null, SkinnedMeshRenderer renderer = null, PlayerVisuals visuals = null)
     {
         void ApplyRig(Transform customRigTransform, SkinnedMeshRenderer rigRenderer, SkinnedMeshRenderer playerRenderer, Material originalMaterial)
         {
@@ -464,16 +498,10 @@ public static class RigManager
             Animator customRigAnimator = customRigTransform.GetComponentInParent<Animator>();
             ApplyRigBones(
                 customRigAnimator,
-                rumbleAnimator);
-            
-            if (controller != null)
-                customRigAnimator.runtimeAnimatorController = controller;
-
-            foreach (var bone in skeletonRoot.GetComponentsInChildren<CustomRigBone>(true))
-            {
-                bone.transform.localPosition = Vector3.zero;
-                bone.transform.localRotation = Quaternion.identity;
-            }
+                rumbleAnimator,
+                rig.transform,
+                skeletonRoot
+            );
 
             if (rigRenderer.sharedMesh != null)
                 if (customRig.Config.swapOriginalMesh) playerRenderer.sharedMesh = rigRenderer.sharedMesh;
@@ -552,9 +580,15 @@ public static class RigManager
             }
 
             if (customRig.Config.swapOriginalMesh)
+            {
                 playerRenderer.materials = newMats;
+            }
             else
+            {
                 rigRenderer.materials = newMats;
+                playerRenderer.material = customRig.OriginalMaterial;
+            }
+                
 
             if (visuals != null && customRig.IsLocal)
             {

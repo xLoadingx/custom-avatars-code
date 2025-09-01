@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CustomAvatars")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+31485bf8fe88787f451a78a4fa46e53d68a2c762")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+ac5fc4aab86a4f44e759eb82482071a926474541")]
 [assembly: System.Reflection.AssemblyProductAttribute("CustomAvatars")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CustomAvatars")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
