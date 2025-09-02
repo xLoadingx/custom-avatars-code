@@ -240,18 +240,29 @@ namespace CustomAvatars
             
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
-                if ((currentScene is "Map0" or "Map1" && !(bool)toggleInMatch.SavedValue) || !(bool)toggleLocal.SavedValue)
+                if (!(bool)toggleLocal.SavedValue)
                     customRig.Apply(CustomRig.RigState.Original);
                 else
                     customRig.Apply(CustomRig.RigState.Rigged);
-
-                if (currentScene != "Gym")
+                
+                if (log)
                 {
-                    var props = new Hashtable();
-                    props["CA_Avatar"] = (bool)toggleVisibleToOthers.SavedValue;
-                    
-                    PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+                    MelonCoroutines.Start(RemoteAvatarLoader.GetSha(Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId, (sha) =>
+                    {
+                        if (sha == null)
+                        {
+                            Main.instance.LoggerInstance.MsgPastel(System.ConsoleColor.Red, "An avatar has not been uploaded. Make sure to upload your avatar when you're done!");
+                            return;
+                        }
+                        
+                        if (!RemoteAvatarLoader.ShaMatchesLocal(sha, customRig.AvatarFilePath, false))
+                            Main.instance.LoggerInstance.MsgPastel(System.ConsoleColor.Red, "Uploaded file is different from local file. Make sure to reupload your avatar when you're done!");
+                        else
+                            Main.instance.LoggerInstance.MsgPastel(System.ConsoleColor.Cyan, "Avatar is up to date on the server.");
+                    }, false));
                 }
+
+                UpdateAvatarVisibility();
                 
                 if (currentScene == "Gym" && rig != null)
                 {
@@ -348,11 +359,11 @@ namespace CustomAvatars
                 }
             }
 
-            if (currentScene != "Gym")
+            if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
             {
                 foreach (var player in PhotonNetwork.PlayerList)
                 {
-                    if (player.CustomProperties == null) continue;
+                    if (player.CustomProperties == null || player == PhotonNetwork.LocalPlayer) continue;
 
                     if (player.CustomProperties.TryGetValue("CA_Avatar", out var value))
                     {
@@ -420,6 +431,31 @@ namespace CustomAvatars
             var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
             var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
             method?.Invoke(null, new object[] { currentScene == "Gym" });
+        }
+
+        private void UpdateAvatarVisibility()
+        {
+            bool showToOthers = (bool)toggleVisibleToOthers.Value;
+            bool showInMatch = (bool)toggleInMatch.Value;
+
+            bool visible = showToOthers && showInMatch;
+
+            if (currentScene != "Gym")
+            {
+                var props = new Il2CppExitGames.Client.Photon.Hashtable();
+                props["CA_Avatar"] = visible;
+                PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+            }
+
+            if (currentScene is "Map0" or "Map1")
+            {
+                var localPlayer = Calls.Players.GetPlayerByActorNo(PhotonNetwork.LocalPlayer.ActorNumber);
+                if (localPlayer != null)
+                {
+                    if (RigManager.rigs.TryGetValue(localPlayer.Data.GeneralData.PlayFabMasterId, out var localRig))
+                        RigManager.ResolveRigState(localPlayer, localRig);
+                }
+            }
         }
 
         public void OnUIInitialized()
@@ -517,13 +553,8 @@ namespace CustomAvatars
                 if (currentScene is "Map0" or "Map1")
                 {
                     bool enabled = (bool)toggleInMatch.Value;
-                    
-                    foreach (var rig in RigManager.rigs)
-                    {
-                        var player = Calls.Players.GetAllPlayers().ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == rig.Key);
-                        RigManager.ResolveRigState(player, rig.Value);
-                    }
-                
+
+                    UpdateAvatarVisibility();
                     RegeneratePortraits();
                 }
             };
@@ -531,11 +562,7 @@ namespace CustomAvatars
             toggleVisibleToOthers.SavedValueChanged += (sender, args) =>
             {
                 if (currentScene != "Gym")
-                {
-                    var props = new Il2CppExitGames.Client.Photon.Hashtable();
-                    props["CA_Avatar"] = (bool)toggleVisibleToOthers.Value;
-                    PhotonNetwork.LocalPlayer.SetCustomProperties(props);
-                }
+                    UpdateAvatarVisibility();
             };
 
             logAvatarStats.SavedValueChanged += (sender, args) =>

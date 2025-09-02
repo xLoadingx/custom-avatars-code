@@ -370,8 +370,7 @@ public static class RigManager
 
     public static void ResolveRigState(Player player, CustomRig rig)
     {
-        if (!(bool)Main.instance.toggleOthers.SavedValue ||
-            (!(bool)Main.instance.toggleInMatch.SavedValue && Main.instance.currentScene is "Map0" or "Map1"))
+        if (!(bool)Main.instance.toggleOthers.Value)
         {
             rig.Apply(CustomRig.RigState.Original);
             return;

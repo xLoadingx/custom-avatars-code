@@ -44,8 +44,6 @@ public class Patches
     {
         private static void Postfix(ref PlayerController __instance, ref Player player)
         {
-            if (!(bool)(Main.instance?.toggleOthers?.SavedValue ?? false) && __instance.controllerType == ControllerType.Remote) return;
-            
             string masterId = player.Data.GeneralData.PlayFabMasterId;
             if (__instance.controllerType == ControllerType.Local || CustomAvatars.Patches.loadedPlayers.Contains(masterId)) return;
             if (!CustomAvatars.Patches.loadedPlayers.Contains(masterId))

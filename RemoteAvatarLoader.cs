@@ -89,7 +89,7 @@ public class RemoteAvatarLoader
         var data = Calls.Players.GetLocalPlayer().Data.GeneralData;
         if (masterId != data.PlayFabMasterId)
         {
-            MelonLogger.Error($"Player tried to upload avatar for masterId that isn't theirs. Please do not mess with stuff like that. It benefits no one.");
+            MelonLogger.Error($"Player tried to upload avatar for masterId that isn't theirs. Please do not mess with stuff like that.");
             MelonCoroutines.Start(
                 SendAudit(
                     "masterId_mismatch", 
@@ -180,7 +180,7 @@ public class RemoteAvatarLoader
         done?.Invoke(ok, false);
     }
 
-    static bool ShaMatchesLocal(string remoteSha, string filePath)
+    public static bool ShaMatchesLocal(string remoteSha, string filePath, bool log = true)
     {
         var bytes = File.ReadAllBytes(filePath);
         var header = System.Text.Encoding.ASCII.GetBytes($"blob {bytes.Length}\0");
@@ -190,7 +190,10 @@ public class RemoteAvatarLoader
         sha1.TransformFinalBlock(bytes, 0, bytes.Length);
         
         var hex = BitConverter.ToString(sha1.Hash).Replace("-", "").ToLowerInvariant();
-        Main.instance.LoggerInstance.Msg($"Local SHA: {hex.Substring(0, 8)}");
+        
+        if (log)
+            Main.instance.LoggerInstance.Msg($"Local SHA: {hex.Substring(0, 8)}");
+        
         return hex == remoteSha;
     }
 
@@ -199,9 +202,10 @@ public class RemoteAvatarLoader
         yield return MelonCoroutines.Start(GetSha(masterId, sha => callback((!string.IsNullOrEmpty(sha), sha))));
     }
 
-    static IEnumerator GetSha(string masterId, System.Action<string> cb)
+    public static IEnumerator GetSha(string masterId, System.Action<string> cb, bool log = true)
     {
-        Main.instance.LoggerInstance.Msg($"Fetching remote SHA for masterId {masterId}...");
+        if (log)
+            Main.instance.LoggerInstance.Msg($"Fetching remote SHA for masterId {masterId}...");
         
         var url = $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{Uri.EscapeDataString(masterId)}?ref={BRANCH}";
         var req = UnityWebRequest.Get(url);
@@ -209,7 +213,9 @@ public class RemoteAvatarLoader
         yield return req.SendWebRequest();
         
         if ((long)req.responseCode == 404) { req.Dispose(); cb(null); yield break; }
-        MelonLogger.Msg($"GitHub responded {req.responseCode}: {req.result}");
+        
+        if (log)
+            Main.instance.LoggerInstance.Msg($"GitHub responded {req.responseCode}: {req.result}");
 
         if (req.result != UnityWebRequest.Result.Success)
         {
