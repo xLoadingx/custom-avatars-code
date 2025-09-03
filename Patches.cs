@@ -19,6 +19,8 @@ public class Patches
 {
     public static List<string> loadedPlayers = new();
     
+    // Applies rig to a remote player if they have one uploaded
+    // The PlayerHasAvatar function seems to be the only reason this works due to its delay
     public static void ApplyRig(Player player)
     {
         MelonCoroutines.Start(
@@ -39,6 +41,7 @@ public class Patches
         );
     }
     
+    // Adds a rig to a newly spawned remote player
     [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.Initialize), new[] { typeof(Player) })]
     public static class PlayerSpawn
     {
@@ -53,6 +56,7 @@ public class Patches
         }
     }
 
+    // Cleans up rig + deletes file when a player leaves
     [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.OnDestroy))]
     public static class PlayerRemove
     {
@@ -71,9 +75,6 @@ public class Patches
                 {
                     GameObject.Destroy(rigObj.Root);
                     Main.instance.RemoveRigFromList(rigObj);
-                    
-                    if (File.Exists(rigObj.AvatarFilePath) && __instance.ControllerType == ControllerType.Remote)
-                        File.Delete(rigObj.AvatarFilePath);
                 }
 
                 RigManager.rigs.Remove(leftId);
@@ -82,6 +83,7 @@ public class Patches
         }
     }
 
+    // Stops default visuals from overriding cvustom rigs in Gym
     [HarmonyPatch(typeof(DressingRoom), nameof(DressingRoom.UpdatePlayerVisuals))]
     public static class DressingRoomVisuals
     {

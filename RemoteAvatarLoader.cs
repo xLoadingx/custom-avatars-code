@@ -1,4 +1,5 @@
 using System.Collections;
+using Il2CppInternal.Cryptography;
 using Il2CppSystem.Text;
 using MelonLoader;
 using MelonLoader.Utils;
@@ -27,6 +28,7 @@ public class RemoteAvatarLoader
     private static readonly HashSet<string> _downloadingPlayers = new();
     public static bool isUploading = false;
 
+    // Helper for GitHub API authentication
     static string GetToken()
     {
         byte[] a = Convert.FromBase64String(PART_A_B64);
@@ -39,6 +41,17 @@ public class RemoteAvatarLoader
         return Encoding.UTF8.GetString(merged);
     }
 
+    // Simple encryption
+    // Doesn't do much, but its good for preventing casual copying
+    public static byte[] XorCrypt(byte[] data, byte key = 0x5A)
+    {
+        for (int i = 0; i < data.Length; i++)
+            data[i] ^= key;
+        return data;
+    }
+
+    // Adds required GitHub headers to the request.
+    // Mostly not to get rate-limited.
     static void SetGhHeaders(UnityWebRequest req, bool wantRaw)
     {
         req.SetRequestHeader("User-Agent", "CustomAvatars/1.0");
@@ -48,24 +61,28 @@ public class RemoteAvatarLoader
             : "application/vnd.github+json");
     }
 
+    // Returns the local path for the player's avatar.
     static string LocalPath(string masterId)
     {
         Directory.CreateDirectory(RootDir);
         return Path.Combine(RootDir, masterId);
     }
 
+    // Builds GitHub API URL for fetching an avatar.
     static string GhUrl(string masterId)
     {
         var fname = Uri.EscapeDataString(masterId);
         return $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{fname}?ref={BRANCH}";
     }
 
+    // Builds GitHub API URL for uploading files
     static string UploadUrlForPath(string pathRelativeToRepoRoot)
     {
         var fname = Uri.EscapeDataString(pathRelativeToRepoRoot);
         return $"https://api.github.com/repos/{GH_REPO}/contents/{fname}";
     }
     
+    // Sends a small JSON log to GitHub (tattletale system)
     static IEnumerator SendAudit(string tag, string jsonPayload)
     {
         var url = UploadUrlForPath($"logs/{System.DateTime.UtcNow:yyyy-MM-dd}/{System.Guid.NewGuid():N}.json");
@@ -81,15 +98,19 @@ public class RemoteAvatarLoader
         req.Dispose();
     }
 
+    // Starts coroutine to upload a bundle to GitHub
+    // Mostly because I hate typing MelonCoroutines.Start()
     public static void UploadBundle(string masterId, string path, System.Action<bool, bool> done) =>
         MelonCoroutines.Start(UploadBundleCoroutine(masterId, path, done));
 
+    // Okay here's the actual coroutine
+    // Full upload workflow: validate, check SHA, skip if identical, else let GitHub eat it.
     public static IEnumerator UploadBundleCoroutine(string masterId, string path, System.Action<bool, bool> done)
     {
         var data = Calls.Players.GetLocalPlayer().Data.GeneralData;
         if (masterId != data.PlayFabMasterId)
         {
-            MelonLogger.Error($"Player tried to upload avatar for masterId that isn't theirs. Please do not mess with stuff like that.");
+            Main.instance.LoggerInstance.Error($"Player tried to upload avatar for masterId that isn't theirs.");
             MelonCoroutines.Start(
                 SendAudit(
                     "masterId_mismatch", 
@@ -147,6 +168,7 @@ public class RemoteAvatarLoader
         var body = $"{{\"message\":\"Upload bundle for {masterId}. Uploaded by {Calls.Players.GetLocalPlayer().Data.GeneralData.PublicUsername.TrimString()}\",\"content\":\"{System.Convert.ToBase64String(bytes)}\",\"branch\":\"{BRANCH}\"" +
                    (sha != null ? $",\"sha\":\"{sha}\"" : "") + "}";
 
+        // Similar to the audit system, but instead for the AssetBundle.
         var url = UploadUrlForPath($"avatars/{masterId}");
         var req = new UnityWebRequest(url, "PUT");
         req.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(body));
@@ -180,11 +202,13 @@ public class RemoteAvatarLoader
         done?.Invoke(ok, false);
     }
 
+    // Compares local file SHA with remote (a SHA is just a hash to check differences)
     public static bool ShaMatchesLocal(string remoteSha, string filePath, bool log = true)
     {
         var bytes = File.ReadAllBytes(filePath);
         var header = System.Text.Encoding.ASCII.GetBytes($"blob {bytes.Length}\0");
         
+        // Crpytography is a strange thing
         using var sha1 = System.Security.Cryptography.SHA1.Create();
         sha1.TransformBlock(header, 0, header.Length, header, 0);
         sha1.TransformFinalBlock(bytes, 0, bytes.Length);
@@ -197,11 +221,14 @@ public class RemoteAvatarLoader
         return hex == remoteSha;
     }
 
+    // Asks GitHub if a player has an avatar file uploaded
+    // Also works as a barrier for player load times messing it up XD
     public static IEnumerator PlayerHasAvatar(string masterId, Action<(bool hasAvatar, string returnedSha)> callback)
     {
         yield return MelonCoroutines.Start(GetSha(masterId, sha => callback((!string.IsNullOrEmpty(sha), sha))));
     }
 
+    // Retrieves the SHA hash of a player's avatar from GitHub.
     public static IEnumerator GetSha(string masterId, System.Action<string> cb, bool log = true)
     {
         if (log)
@@ -229,12 +256,20 @@ public class RemoteAvatarLoader
         
         var txt = System.Text.Encoding.UTF8.GetString(data);
 
+        // I was on something when I made this
+        // Basically just returns the actual sha instead of the rest of the response.
         int i = txt.IndexOf("\"sha\":\"", System.StringComparison.Ordinal);
         if (i < 0) { cb(null); yield break; }
         i += 7; int j = txt.IndexOf('\"', i);
         cb(j > i ? txt.Substring(i, j - i) : null);
     }
+    
+    // Same as UploadAvatar
+    // Just starts the coroutine, for testing purposes
+    public static void StartDownloadToFile(string masterId, string savePath) =>
+        MelonCoroutines.Start(DownloadToFile(masterId, savePath));
 
+    // Downloads avatar bundle, size-checks it with the metadata, and saves to disk.
     public static IEnumerator DownloadToFile(string masterId, string savePath)
     {
         if (!_downloadingPlayers.Add(masterId))
@@ -243,6 +278,7 @@ public class RemoteAvatarLoader
             yield break;
         }
         
+        // Contained inside of the file uploaded itself
         var metaUrl = $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{Uri.EscapeDataString(masterId)}?ref={BRANCH}";
         var metaReq = UnityWebRequest.Get(metaUrl);
         SetGhHeaders(metaReq, wantRaw: false);
@@ -252,6 +288,7 @@ public class RemoteAvatarLoader
         {
             Main.instance.LoggerInstance.Error($"Metadata fetch failed for {masterId}: {metaReq.error}");
             metaReq.Dispose();
+            _downloadingPlayers.Remove(masterId);
             yield break;
         }
 
@@ -261,6 +298,7 @@ public class RemoteAvatarLoader
             if (bytes == null || bytes.Length == 0)
             {
                 metaReq.Dispose();
+                _downloadingPlayers.Remove(masterId);
                 yield break;
             }
             
@@ -280,6 +318,7 @@ public class RemoteAvatarLoader
                         Main.instance.LoggerInstance.Warning(
                             $"Download skipped: {fileSizeBytes / (1024 * 1024)} MB exceeds limit of {maxDownloadBytes / (1024 * 1024)} MB.");
                         metaReq.Dispose();
+                        _downloadingPlayers.Remove(masterId);
                         yield break;
                     }
                 }
@@ -289,6 +328,7 @@ public class RemoteAvatarLoader
         {
             Main.instance.LoggerInstance.Error($"Error parsing metadata for {masterId}: {e.Message}");
             metaReq.Dispose();
+            _downloadingPlayers.Remove(masterId);
             yield break;
         }
         metaReq.Dispose();
@@ -298,10 +338,40 @@ public class RemoteAvatarLoader
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
+        {
             Main.instance.LoggerInstance.Error($"Download failed for {masterId}: {req.error}");
+        }
         else
-            File.WriteAllBytes(savePath, req.downloadHandler.data);
-
+        {
+            var data = req.downloadHandler.data;
+            if (data == null || data.Length < 16)
+            {
+                Main.instance.LoggerInstance.Error($"Blocked: {masterId} file too small to be a valid AssetBundle.");
+                _downloadingPlayers.Remove(masterId);
+                req.Dispose();
+                yield break;
+            }
+            
+            var header = System.Text.Encoding.ASCII.GetString(data, 0, Math.Min(7, data.Length));
+            if (!header.StartsWith("UnityFS", StringComparison.Ordinal))
+            {
+                Main.instance.LoggerInstance.Error($"Blocked: {masterId} is not a valid Unity AssetBundle (header={header}).");
+                
+                MelonCoroutines.Start(
+                    SendAudit(
+                        "invalid_header",
+                        $"[{System.DateTime.UtcNow:O}] Invalid bundle header for MasterID {masterId} - got '{header}' " +
+                        $"Code={req.responseCode} Error={req.error} "
+                    )
+                );
+            }
+            else
+            {
+                var encrypted = XorCrypt(data);
+                File.WriteAllBytes(savePath, encrypted);
+            }
+        }
+        
         _downloadingPlayers.Remove(masterId);
 
         req.Dispose();

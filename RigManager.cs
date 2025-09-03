@@ -27,6 +27,8 @@ public static class RigManager
         instance = mainInstance;
     }
 
+    // Logs optimization stats (verts, mats, textures)
+    // A simple version of VRC's system, but it works
     public static void LogStatsForAvatar(GameObject rig)
     {
         var LoggerInstance = Main.instance.LoggerInstance;
@@ -140,26 +142,30 @@ public static class RigManager
             avatarDetails.transform.GetChild(2).GetComponent<TextMeshPro>().text = $"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}";
         }
     }
-
+    
     public static void ClearRigs()
     {
         foreach (var rig in rigs.Values)
-        {
-            rig.Apply(CustomRig.RigState.Original);
-            
-            if (Main.instance.perPlayerToggles.ContainsKey(rig))
-                Main.instance.RemoveRigFromList(rig);
-            
-            GameObject.Destroy(rig.Root);
-        }
+            ClearRig(rig);
             
         rigs.Clear();
     }
+
+    public static void ClearRig(CustomRig rig)
+    {
+        rig.Apply(CustomRig.RigState.Original);
+            
+        if (Main.instance.perPlayerToggles.ContainsKey(rig))
+            Main.instance.RemoveRigFromList(rig);
+            
+        GameObject.Destroy(rig.Root);
+    }
     
+    // Converts managed stream to Il2Cpp stream
     public static Il2CppSystem.IO.Stream ConvertToIl2CppStream(Stream stream)
     {
         Il2CppSystem.IO.MemoryStream il2CppStream = new Il2CppSystem.IO.MemoryStream();
-        byte[] numArray = new byte[4096 /*0x1000*/];
+        byte[] numArray = new byte[4096];
         Il2CppStructArray<byte> il2CppStructArray = new Il2CppStructArray<byte>(numArray);
         int count;
         while ((count = stream.Read(numArray, 0, numArray.Length)) > 0)
@@ -171,18 +177,22 @@ public static class RigManager
         return (Il2CppSystem.IO.Stream) il2CppStream;
     }
 
-    public static MemoryStream StreamFromFile(string path)
-    {
-        return new MemoryStream(File.ReadAllBytes(path));
-    }
-
-    public static IEnumerator LoadAssetBundleFromFileAsync(string filePath, Action<AssetBundle> onLoaded)
+    // Semi-async bundle load
+    // File I/O happens on a background thread,
+    // but Unity's LoadFromStream still blocks the main thread.
+    // Somehow feels smoother...
+    public static IEnumerator LoadAssetBundleFromFileAsync(string filePath, bool isLocal, Action<AssetBundle> onLoaded)
     {
         MemoryStream ms = null;
 
         Task loadTask = Task.Run(() =>
         {
-            ms = StreamFromFile(filePath);
+            byte[] bytes = File.ReadAllBytes(filePath);
+
+            if (!isLocal)
+                bytes = RemoteAvatarLoader.XorCrypt(bytes);
+
+            ms = new MemoryStream(bytes);
         });
 
         while (!loadTask.IsCompleted)
@@ -200,6 +210,7 @@ public static class RigManager
         onLoaded?.Invoke(bundle);
     }
     
+    // Main rig loader
     public static IEnumerator LoadRigForPlayer(Player player, Action<GameObject> onLoaded, bool log = true, string remoteSha = null)
     {
         string playerID = player?.Data?.GeneralData?.PlayFabMasterId;
@@ -236,26 +247,42 @@ public static class RigManager
                 ? Directory.GetFiles(basePath, "*.rumbleavatar").FirstOrDefault()
                 : Path.Combine(opponentPath, playerID);
 
-            if (!isLocal && !File.Exists(filePath))
+            if (!isLocal)
             {
-                if (log)
-                    Main.instance.LoggerInstance.Msg($"Downloading avatar for path {opponentPath}");
-
-                yield return MelonCoroutines.Start(RemoteAvatarLoader.DownloadToFile(playerID, filePath));
+                if (File.Exists(filePath) && !string.IsNullOrEmpty(remoteSha))
+                {
+                    if (RemoteAvatarLoader.ShaMatchesLocal(remoteSha, filePath))
+                    {
+                        if (log) Main.instance.LoggerInstance.Msg($"Using cached avatar for {playerID}.");
+                    }
+                    else
+                    {
+                        if (log)
+                            Main.instance.LoggerInstance.Msg($"Avatar for {playerID} outdated, downloading fresh...");
+                        File.Delete(filePath);
+                        yield return MelonCoroutines.Start(RemoteAvatarLoader.DownloadToFile(playerID, filePath));
+                    }
+                }
+                else
+                {
+                    if (log) Main.instance.LoggerInstance.Msg($"No cached avatar for {playerID}, downloading...");
+                    yield return MelonCoroutines.Start(RemoteAvatarLoader.DownloadToFile(playerID, filePath));
+                }
             }
-            
+
             string rigPath = isLocal
                 ? Directory.GetFiles(basePath, "*.rumbleavatar").FirstOrDefault()
                 : Path.Combine(basePath, "Opponents", playerID);
 
             if (string.IsNullOrEmpty(rigPath) || !File.Exists(rigPath))
             {
-                Main.instance.LoggerInstance.Warning($"No custom avatar found for {(isLocal ? "you" : player?.Data.GeneralData?.PublicUsername ?? "unknown")} at {rigPath}");
+                Main.instance.LoggerInstance.Warning(
+                    $"No custom avatar found for {(isLocal ? "you" : player?.Data.GeneralData?.PublicUsername ?? "unknown")} at {basePath}");
                 yield break;
-            } 
+            }
 
             AssetBundle rigBundle = null;
-            yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath,
+            yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath, isLocal,
                 (bundle) => { rigBundle = bundle; }));
             GameObject rigPrefab = rigBundle?.LoadAsset<GameObject>("Rig");
             if (rigPrefab == null)
@@ -269,6 +296,8 @@ public static class RigManager
             rigInstance.name = $"RIG - {playerID}";
             rigInstance.transform.SetParent(Main.instance.rigParent.transform, true);
 
+            // Function seems to only work with these null checks
+            // despite never saying they are null, it likes them here either way
             if (player?.Controller == null)
             {
                 Main.instance.LoggerInstance.Error("player.Controller is null");
@@ -337,6 +366,8 @@ public static class RigManager
                )
                 LogStatsForAvatar(rigInstance);
 
+            // It only gets deeper
+            // I wouldn't recommend going here
             ApplyRigToPlayer(player, rigInstance, log);
 
             if (!isLocal)
@@ -350,11 +381,13 @@ public static class RigManager
                 ResolveRigState(player, rig);
             }
 
+            // Fixes clipping issue with (most) rigs close to camera
             var camObj = GameObject.Find($"RumbleHud_{playerID}_portraitCamera");
             var cam = camObj?.GetComponent<Camera>();
             if (cam != null)
                 cam.nearClipPlane = 0.01f;
 
+            // Only works if RumbleHud actually exists, so thats neat.
             var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
             var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
             method?.Invoke(null, new object[] { Main.instance.currentScene == "Gym" });
@@ -368,6 +401,8 @@ public static class RigManager
         }
     }
 
+    // Basically has to merge like 3 settings into one
+    // toggleOthers, perPlayerToggles, and canOthersSeeMyAvatar
     public static void ResolveRigState(Player player, CustomRig rig)
     {
         if (!(bool)Main.instance.toggleOthers.Value)
@@ -403,6 +438,7 @@ public static class RigManager
         }
     }
 
+    // Wires a rig up to the player's renderer + animator
     public static void ApplyRigToPlayer(Player player, GameObject rig, bool log = true)
     {
         if (player == null || rig == null) return;
@@ -416,12 +452,17 @@ public static class RigManager
         if (playerRenderer == null || rigRenderer == null) return;
 
         var playerRigRoot = player.Controller.transform.GetChild(1).GetChild(1);
+        
+        // It just gets worse
         ApplyRigToSMR(playerRigRoot, rig, player.Controller.transform.GetChild(1).GetComponent<Animator>(), player.Controller.GetComponent<CustomRig>(), visuals: player.Controller.GetSubsystem<PlayerVisuals>());
         
         if (log)
             instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");
     }
 
+    // Main backbone of the whole rig system
+    // The humanoid system tends to make it a lot easier
+    // but if you like pain you can still go the other route
     public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator, Transform rigRoot, Transform rumbleRoot)
     {
         if (rigAnimator != null && rigAnimator.isHuman)
@@ -436,6 +477,8 @@ public static class RigManager
                 if (rigBone == null || rumbleBone == null)
                     continue;
 
+                // Animators tend to break this for some reason
+                // I'll have to find another way if we really want avatar settings
                 rigBone.SetParent(rumbleBone, true);
                 rigBone.localPosition = Vector3.zero;
                 rigBone.localRotation = Quaternion.identity;
@@ -468,6 +511,8 @@ public static class RigManager
         }
     }
 
+    // Basically swaps out the in game rig for the custom one
+    // Very cursed way of doing it, but im not messing with the VRIK system ever again
     public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, Animator rumbleAnimator = null, CustomRig customRig = null, SkinnedMeshRenderer renderer = null, PlayerVisuals visuals = null)
     {
         void ApplyRig(Transform customRigTransform, SkinnedMeshRenderer rigRenderer, SkinnedMeshRenderer playerRenderer, Material originalMaterial)
@@ -508,6 +553,7 @@ public static class RigManager
             foreach (var t in rig.GetComponentsInChildren<Collider>(true))
                 GameObject.Destroy(t);
 
+            // The funny
             Animator customRigAnimator = customRigTransform.GetComponentInParent<Animator>();
             ApplyRigBones(
                 customRigAnimator,
@@ -553,6 +599,9 @@ public static class RigManager
             
             int bodyIndex = customRig.Config?.bodyShaderSlot ?? 0;
             
+            // I somehow got this to work
+            // I have seen a few instances of it breaking,
+            // but I haven't found why yet
             for (int i = 0; i < rigMats.Length; i++)
             {
                 Material original = rigMats[i];
@@ -662,23 +711,6 @@ public static class RigManager
             ApplyRig(rig.transform, rigRenderer, renderer, renderer.material);
         }
     }
-
-    public static Transform FindDeepChild(Transform parent, string name)
-    {
-        for (int i = 0; i < parent.childCount; i++)
-        {
-            var child = parent.GetChild(i);
-
-            if (child.name == name)
-                return child;
-
-            var result = FindDeepChild(child, name);
-            if (result != null)
-                return result;
-        }
-
-        return null;
-    }
 }
 
 [Serializable]
@@ -704,26 +736,7 @@ public class AvatarDescriptorExport
     public bool autoBlink = false;
     public Vector2 blinkInterval = Vector2.zero;
     public float blinkSpeed = 0.05f;
-
-    // public List<AnimatorParam> parameters = new();
-    // public string animatorControllerName;
 }
-
-// public enum ParamType
-// {
-//     Bool,
-//     Float,
-//     Int
-// }
-//
-// [Serializable]
-// public class AnimatorParam
-// {
-//     public string name;
-//     public ParamType type;
-//     public bool networked = true;
-//     public string uiLabel;
-// }
 
 [Serializable]
 public class BlendshapeDefault
@@ -733,6 +746,8 @@ public class BlendshapeDefault
     public float weight;
 }
 
+// This doesn't seem to work anymore for some reason
+// Not sure if ill add it back.
 [RegisterTypeInIl2Cpp]
 public class GrabbableObject : MonoBehaviour
 {
@@ -833,6 +848,7 @@ public class GrabbableObject : MonoBehaviour
     }
 }
 
+// Though these I will definitely add back, when I have the chance
 [Flags]
 public enum TriggerActionType
 {

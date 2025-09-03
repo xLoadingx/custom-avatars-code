@@ -117,7 +117,6 @@ namespace CustomAvatars
 
         // TODO:
         // Add base avatars you can choose from and customize
-        // Make tutorial on how to make custom avatars
         
         public override void OnLateInitializeMelon()
         {
@@ -127,6 +126,7 @@ namespace CustomAvatars
             RigManager.Initialize(this);
         }
 
+        // Clears state and rigs when a scene loads
         public override void OnSceneWasLoaded(int buildIndex, string sceneName)
         {
             currentScene = sceneName;
@@ -137,6 +137,7 @@ namespace CustomAvatars
             rigParent = null;
         }
 
+        // Deletes cached avatars from disk when you close the game
         public override void OnDeinitializeMelon()
         {
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
@@ -153,6 +154,8 @@ namespace CustomAvatars
             }
         }
 
+        // Resets rigs and builds a few things in Gym
+        // Loads the Optimization text and the reload button
         public void Initialize()
         {
             RigManager.ClearRigs();
@@ -163,6 +166,7 @@ namespace CustomAvatars
             
             ApplyAvatars(true);
 
+            // Making objects in code is fun looking
             if (currentScene == "Gym" && !sceneInitialized)
             {
                 GameObject tryOutModePanel = Calls.GameObjects.Gym.LOGIC.DressingRoom.Controlpanel.Controls
@@ -212,6 +216,8 @@ namespace CustomAvatars
             sceneInitialized = true;
         }
 
+        // Applies local & preview rigs, also SHA-checks against GitHub
+        // Might need to make the warning a bit more visible
         public void ApplyAvatars(bool log = true)
         {
             RigManager.ClearRigs();
@@ -240,11 +246,6 @@ namespace CustomAvatars
             
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
-                if (!(bool)toggleLocal.SavedValue)
-                    customRig.Apply(CustomRig.RigState.Original);
-                else
-                    customRig.Apply(CustomRig.RigState.Rigged);
-                
                 if (log)
                 {
                     MelonCoroutines.Start(RemoteAvatarLoader.GetSha(Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId, (sha) =>
@@ -316,6 +317,8 @@ namespace CustomAvatars
             ranOnce = true;
         }
 
+        // Esnures rigParent stays active
+        // Mostly because FlatLand
         public override void OnFixedUpdate()
         {
             if (currentScene == "Loader") return;
@@ -324,6 +327,8 @@ namespace CustomAvatars
                 rigParent.SetActive(true);
         }
 
+        // Reload keybind + rig refresh
+        // Reload for other players might need some tweaking
         public override void OnUpdate()
         {
             if (reloadKeybind != null && Enum.TryParse((string)reloadKeybind.SavedValue, true, out KeyCode parsed))
@@ -349,9 +354,7 @@ namespace CustomAvatars
                         if (!string.IsNullOrEmpty(rig.AvatarFilePath) && File.Exists(rig.AvatarFilePath))
                             try { File.Delete(rig.AvatarFilePath); } catch {}
 
-                        rig.Apply(CustomRig.RigState.Original);
-                        RigManager.rigs.Remove(id);
-                        GameObject.Destroy(rig.Root);
+                        RigManager.ClearRig(rig);
                         GameObject.Destroy(rig);
                     
                         Patches.ApplyRig(player);
@@ -359,6 +362,7 @@ namespace CustomAvatars
                 }
             }
 
+            // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
             if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
             {
                 foreach (var player in PhotonNetwork.PlayerList)
@@ -384,6 +388,7 @@ namespace CustomAvatars
             }
         }
 
+        // Adds per-player toggle for ModUI
         public void AddRigToList(CustomRig rig)
         {
             try
@@ -411,6 +416,7 @@ namespace CustomAvatars
             }
         }
 
+        // Removes per-player toggle (cleanup if player leaves)
         public void RemoveRigFromList(CustomRig rig)
         {
             if (perPlayerToggles.TryGetValue(rig, out var setting))
@@ -426,6 +432,7 @@ namespace CustomAvatars
             }
         }
 
+        // Refreshes HUD portraits to show new avatar, if the mod exists
         public void RegeneratePortraits()
         {
             var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
@@ -433,28 +440,38 @@ namespace CustomAvatars
             method?.Invoke(null, new object[] { currentScene == "Gym" });
         }
 
+        // Similar to ResolveRigState
+        // Merges a bunch of settings into a value
+        // Also syncs across the network
         private void UpdateAvatarVisibility()
         {
             bool showToOthers = (bool)toggleVisibleToOthers.Value;
             bool showInMatch = (bool)toggleInMatch.Value;
+            bool showLocal = (bool)toggleLocal.Value;
 
-            bool visible = showToOthers && showInMatch;
-
-            if (currentScene != "Gym")
+            var localRig = Calls.Players.GetLocalPlayer().Controller.GetComponent<CustomRig>();
+            
+            if (currentScene == "Gym")
             {
-                var props = new Il2CppExitGames.Client.Photon.Hashtable();
-                props["CA_Avatar"] = visible;
-                PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+                localRig.Apply(showLocal
+                    ? CustomRig.RigState.Rigged
+                    : CustomRig.RigState.Original);
+
+                return;
             }
+
+            bool visibleToOthers = showToOthers && showInMatch;
+            var props = new Hashtable();
+            props["CA_Avatar"] = visibleToOthers;
+            PhotonNetwork.LocalPlayer.SetCustomProperties(props);
 
             if (currentScene is "Map0" or "Map1")
             {
-                var localPlayer = Calls.Players.GetPlayerByActorNo(PhotonNetwork.LocalPlayer.ActorNumber);
-                if (localPlayer != null)
-                {
-                    if (RigManager.rigs.TryGetValue(localPlayer.Data.GeneralData.PlayFabMasterId, out var localRig))
-                        RigManager.ResolveRigState(localPlayer, localRig);
-                }
+                bool visibleLocally = showLocal && showInMatch;
+
+                localRig.Apply(visibleLocally
+                    ? CustomRig.RigState.Rigged
+                    : CustomRig.RigState.Original);
             }
         }
 
@@ -471,7 +488,7 @@ namespace CustomAvatars
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles whether you see your custom avatar locally. This does not affect what other players see.", new Tags());
             toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles whether you can see other players' custom avatars.", new Tags());
             toggleVisibleToOthers = mod.AddToList("Let Others See My Avatar", true, 0, "Controls whether other players can see your custom avatar. This setting is networked.", new Tags());
-            toggleInMatch = mod.AddToList("Toggle In Match", true, 0, "Toggles whether or not Custom Avatars will be loaded in matches.", new Tags());
+            toggleInMatch = mod.AddToList("Toggle In Match", true, 0, "Toggles whether or not you and other players can see your custom avatar in a match. This setting is networked.", new Tags());
 
             mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
             logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
@@ -524,17 +541,7 @@ namespace CustomAvatars
             {
                 bool enabled = (bool)toggleLocal.Value;
 
-                foreach (var rig in RigManager.rigs)
-                {
-                    if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId ||
-                        rig.Key == "Preview Controller (Dressing Room)")
-                    {
-                        if (rig.Value?.playerVisuals != null && enabled)
-                            rig.Value.OriginalVisualsMaterial = rig.Value.playerVisuals.NonHeadClippedMaterial;
-                        
-                        rig.Value?.Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
-                    }
-                }
+                UpdateAvatarVisibility();
 
                 if (currentScene == "Gym")
                 {
@@ -835,6 +842,9 @@ namespace CustomAvatars
                             blinkCoroutine = MelonCoroutines.Start(AutoBlinkCoroutine());
                         }
                     }
+
+                    if (!Main.instance.perPlayerToggles.ContainsKey(this))
+                        Main.instance.AddRigToList(this);
                     
                     break;
                 default:
