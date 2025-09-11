@@ -1,17 +1,10 @@
-using System.Collections;
 using UnityEngine;
 using HarmonyLib;
-using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
-using Il2CppRUMBLE.MeshGeneration;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
-using Il2CppTMPro;
 using MelonLoader;
 using RumbleModdingAPI;
-using UnityEngine.EventSystems;
-using UnityEngine.UI;
-using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 
 namespace CustomAvatars;
 
@@ -26,30 +19,30 @@ public class Patches
         MelonCoroutines.Start(
             RemoteAvatarLoader.PlayerHasAvatar(player.Data.GeneralData.PlayFabMasterId, avatarDetails =>
             {
-                if (avatarDetails.hasAvatar)
-                {
-                    var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
+                if (!avatarDetails.hasAvatar)
+                    return;
+                
+                var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
         
-                    var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
-                    customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
+                var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
+                customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
         
-                    visuals.renderer.material = Main.poseGhostMaterial;
+                visuals.renderer.material = Main.poseGhostMaterial;
                     
-                    MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true, avatarDetails.returnedSha));
-                }
+                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true, avatarDetails.returnedSha));
             })
         );
     }
     
     // Adds a rig to a newly spawned remote player
-    [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.Initialize), new[] { typeof(Player) })]
+    [HarmonyPatch(typeof(PlayerController), nameof(PlayerController.Initialize), typeof(Player))]
     public static class PlayerSpawn
     {
         private static void Postfix(ref PlayerController __instance, ref Player player)
         {
             string masterId = player.Data.GeneralData.PlayFabMasterId;
-            if (__instance.controllerType == ControllerType.Local || CustomAvatars.Patches.loadedPlayers.Contains(masterId)) return;
-            if (!CustomAvatars.Patches.loadedPlayers.Contains(masterId))
+            if (__instance.controllerType == ControllerType.Local || loadedPlayers.Contains(masterId)) return;
+            if (!loadedPlayers.Contains(masterId))
                 loadedPlayers.Add(masterId);
             
             ApplyRig(player);
@@ -83,16 +76,31 @@ public class Patches
         }
     }
 
-    // Stops default visuals from overriding cvustom rigs in Gym
+    // Stops default visuals from overriding custom rigs in Gym
     [HarmonyPatch(typeof(DressingRoom), nameof(DressingRoom.UpdatePlayerVisuals))]
     public static class DressingRoomVisuals
     {
         private static bool Prefix(bool saveChanges)
         {
-            if (Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false))
-                return false;
+            return !IsEnabled();
+        }
 
-            return true;
+        private static void Postfix(bool saveChanges)
+        {
+            if (IsEnabled())
+                return;
+            
+            var localPlayer = Calls.Players.GetLocalPlayer()?.Controller;
+            if (localPlayer?.TryGetComponent<CustomRig>(out var rig) ?? false)
+            {
+                rig.OriginalVisualsMaterial = new Material(localPlayer.GetSubsystem<PlayerVisuals>().NonHeadClippedMaterial);
+                rig.OriginalVisualsMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+            }
+        }
+
+        private static bool IsEnabled()
+        {
+            return Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false);
         }
     }
 }

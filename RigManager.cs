@@ -1,6 +1,5 @@
 using System.Collections;
 using System.Reflection;
-using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.Players;
@@ -11,7 +10,6 @@ using MelonLoader.Utils;
 using Newtonsoft.Json;
 using RumbleModdingAPI;
 using UnityEngine;
-using Object = System.Object;
 
 namespace CustomAvatars;
 
@@ -20,7 +18,7 @@ public static class RigManager
     private static Main instance;
     public static readonly Dictionary<string, CustomRig> rigs = new();
     private static readonly HashSet<string> loadingPlayers = new();
-    private static int activeLoads = 0;
+    private static int activeLoads;
 
     public static void Initialize(Main mainInstance)
     {
@@ -28,7 +26,7 @@ public static class RigManager
     }
 
     // Logs optimization stats (verts, mats, textures)
-    // A simple version of VRC's system, but it works
+    // A simple version of VRCs system, but it works
     public static void LogStatsForAvatar(GameObject rig)
     {
         var LoggerInstance = Main.instance.LoggerInstance;
@@ -83,9 +81,10 @@ public static class RigManager
                 int passCount = mat.shader?.passCount ?? 0;
                 totalPasses += passCount;
                 if (passCount > 7)
-                    LoggerInstance.Warning($"[Avatar Optimiziation] Shader '{mat.shader.name}' has {passCount} passes.");
+                    if (mat.shader != null)
+                        LoggerInstance.Warning($"[Avatar Optimization] Shader '{mat.shader.name}' has {passCount} passes.");
 
-                if (mat.shader.name.ToLower().Contains("tessellation"))
+                if (mat.shader != null && mat.shader.name.ToLower().Contains("tessellation"))
                 {
                     hasHeavyShaders = true;
                     Main.instance.LoggerInstance.Warning($"[Avatar Optimization] Shader '{mat.shader.name}' uses expensive features.");
@@ -133,13 +132,13 @@ public static class RigManager
             });
             
             var avatarDetails = Main.instance.avatarOptimizationParent;
-            avatarDetails.transform.GetChild(0).GetComponent<TextMeshPro>().text = rating;
-            avatarDetails.transform.GetChild(0).GetComponent<TextMeshPro>().color = textColor;
-            
-            avatarDetails.transform.GetChild(1).GetComponent<TextMeshPro>().text = $"{vertexCount} verts, {materialCount} mat(s), {totalTextures} texture(s).";
+            avatarDetails.transform.GetChild(1).GetComponent<TextMeshPro>().text = rating;
             avatarDetails.transform.GetChild(1).GetComponent<TextMeshPro>().color = textColor;
             
-            avatarDetails.transform.GetChild(2).GetComponent<TextMeshPro>().text = $"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}";
+            avatarDetails.transform.GetChild(2).GetComponent<TextMeshPro>().text = $"{vertexCount} verts, {materialCount} mat(s), {totalTextures} texture(s).";
+            avatarDetails.transform.GetChild(2).GetComponent<TextMeshPro>().color = textColor;
+            
+            avatarDetails.transform.GetChild(3).GetComponent<TextMeshPro>().text = $"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}";
         }
     }
     
@@ -166,15 +165,14 @@ public static class RigManager
     {
         Il2CppSystem.IO.MemoryStream il2CppStream = new Il2CppSystem.IO.MemoryStream();
         byte[] numArray = new byte[4096];
-        Il2CppStructArray<byte> il2CppStructArray = new Il2CppStructArray<byte>(numArray);
         int count;
         while ((count = stream.Read(numArray, 0, numArray.Length)) > 0)
         {
-            Il2CppStructArray<byte> buffer = (Il2CppStructArray<byte>) numArray;
+            Il2CppStructArray<byte> buffer = numArray;
             il2CppStream.Write(buffer, 0, count);
         }
         il2CppStream.Flush();
-        return (Il2CppSystem.IO.Stream) il2CppStream;
+        return il2CppStream;
     }
 
     // Semi-async bundle load
@@ -204,6 +202,7 @@ public static class RigManager
             yield break;
         }
 
+        ms.Position = 0;
         Il2CppSystem.IO.Stream il2cppStream = ConvertToIl2CppStream(ms);
         AssetBundle bundle = AssetBundle.LoadFromStream(il2cppStream);
 
@@ -277,28 +276,38 @@ public static class RigManager
             if (string.IsNullOrEmpty(rigPath) || !File.Exists(rigPath))
             {
                 Main.instance.LoggerInstance.Warning(
-                    $"No custom avatar found for {(isLocal ? "you" : player?.Data.GeneralData?.PublicUsername ?? "unknown")} at {basePath}");
+                    $"No custom avatar found for {(isLocal ? "you" : player.Data.GeneralData?.PublicUsername ?? "unknown")} at {basePath}");
                 yield break;
             }
 
             AssetBundle rigBundle = null;
             yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath, isLocal,
                 (bundle) => { rigBundle = bundle; }));
+
+            if (rigBundle == null)
+            {
+                Main.instance.LoggerInstance.Error($"AssetBundle at path {rigPath} was not a valid AssetBundle.");
+                
+                if (File.Exists(rigPath) && !isLocal)
+                    File.Delete(rigPath);
+                
+                yield break;
+            }
+            
             GameObject rigPrefab = rigBundle?.LoadAsset<GameObject>("Rig");
             if (rigPrefab == null)
             {
                 Main.instance.LoggerInstance.Error(
-                    $"Failed to load 'Rig' GameObject for {(isLocal ? "local player" : player?.Data?.GeneralData?.PublicUsername ?? "unknown")} from path {rigPath}");
+                    $"Failed to load 'Rig' GameObject for {(isLocal ? "local player" : player.Data?.GeneralData?.PublicUsername ?? "unknown")} from path {rigPath}");
                 yield break;
             }
 
-            var rigInstance = GameObject.Instantiate(rigPrefab);
+            var rigInstance = GameObject.Instantiate(rigPrefab, Main.instance.rigParent.transform, true);
             rigInstance.name = $"RIG - {playerID}";
-            rigInstance.transform.SetParent(Main.instance.rigParent.transform, true);
 
             // Function seems to only work with these null checks
             // despite never saying they are null, it likes them here either way
-            if (player?.Controller == null)
+            if (player.Controller == null)
             {
                 Main.instance.LoggerInstance.Error("player.Controller is null");
                 yield break;
@@ -372,12 +381,8 @@ public static class RigManager
 
             if (!isLocal)
             {
-                string path = Path.Combine(basePath, "Opponents", playerID);
-
                 var rig = player.Controller.GetComponent<CustomRig>();
-
                 Main.instance.AddRigToList(customRig);
-
                 ResolveRigState(player, rig);
             }
 
@@ -511,6 +516,20 @@ public static class RigManager
         }
     }
 
+    public static Transform GetBone(Animator animator, HumanBodyBones bone, Transform rigRoot = null, string boneName = null)
+    {
+        if (animator != null && animator.isHuman)
+            return animator.GetBoneTransform(bone);
+
+        if (rigRoot != null && !string.IsNullOrEmpty(boneName))
+        {
+            return rigRoot.GetComponentsInChildren<Transform>(true)
+                .FirstOrDefault(t => t.name.Equals(boneName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        return null;
+    }
+
     // Basically swaps out the in game rig for the custom one
     // Very cursed way of doing it, but im not messing with the VRIK system ever again
     public static void ApplyRigToSMR(Transform skeletonRoot, GameObject rig, Animator rumbleAnimator = null, CustomRig customRig = null, SkinnedMeshRenderer renderer = null, PlayerVisuals visuals = null)
@@ -611,30 +630,39 @@ public static class RigManager
             
                 if (isPlayerShader)
                 {
-                    mat = new Material(customRig.OriginalMaterial);
-            
                     var baseMap = original.GetTexture("_BaseMap");
                     if (baseMap != null)
+                    {
+                        mat = new Material(customRig.OriginalMaterial);
                         mat.SetTexture("_ColorAtlas", baseMap);
+                    }
+                    else
+                    {
+                        Main.instance.LoggerInstance.Warning($"Material {original.name} had no _BaseMap, falling back to original.");
+                        mat = original;
+                    }
                 }
                 else
                 {
                     mat = new Material(original);
                 }
-            
-                if (i == bodyIndex && visuals != null && customRig.IsLocal)
+
+                if (customRig.Config is { swapOriginalMesh: true })
                 {
-                    if (isPlayerShader)
+                    if (i == bodyIndex && visuals != null && customRig.IsLocal)
                     {
-                        var baseMap = original.GetTexture("_BaseMap");
-                        if (baseMap != null)
-                            visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMap);
-                    }
-                    else
-                    {
-                        visuals.NonHeadClippedMaterial = original;
-                        if (visuals.NonHeadClippedMaterial.HasFloat("_IsLocal"))
-                            visuals.NonHeadClippedMaterial.SetFloat("_IsLocal", 0f);
+                        if (isPlayerShader)
+                        {
+                            var baseMap = original.GetTexture("_BaseMap");
+                            if (baseMap != null)
+                                visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMap);
+                        }
+                        else
+                        {
+                            visuals.NonHeadClippedMaterial = original;
+                            if (visuals.NonHeadClippedMaterial.HasFloat("_IsLocal"))
+                                visuals.NonHeadClippedMaterial.SetFloat("_IsLocal", 0f);
+                        }
                     }
                 }
                 
@@ -732,9 +760,25 @@ public class AvatarDescriptorExport
     public int blinkLeftBlendshape = -1;
     public int blinkRightBlendshape = -1;
     public int jawOpenBlendshape = -1;
-    public float voiceMultiplier = 30;
-    public bool autoBlink = false;
-    public Vector2 blinkInterval = Vector2.zero;
+    public EyeSettings eyeSettings = new EyeSettings();
+}
+
+[System.Serializable]
+public class EyeSettings
+{
+    public AvatarDescriptorExport.BlinkType blinkType;
+    public int blinkBlendshape = -1;
+    public int blinkLeftBlendshape = -1;
+    public int blinkRightBlendshape = -1;
+
+    public int eyeUpBlendshape = -1;
+    public int eyeDownBlendshape = -1;
+    public int eyeLeftBlendshape = -1;
+    public int eyeRightBlendshape = -1;
+
+    public float eyeGain = 1.0f;
+
+    public Vector2 blinkInterval = new(2.5f, 5f);
     public float blinkSpeed = 0.05f;
 }
 
@@ -759,13 +803,13 @@ public class GrabbableObject : MonoBehaviour
     public Quaternion originalRotation;
     public Transform originalParent;
 
-    private Transform currentHand = null;
-    private bool isGrabbed = false;
+    private Transform currentHand;
+    private bool isGrabbed;
     
-    private bool isLeftTouching = false;
-    private bool isRightTouching = false;
-    private bool wasLeftGripHeldLastFrame = false;
-    private bool wasRightGripHeldLastFrame = false;
+    private bool isLeftTouching;
+    private bool isRightTouching;
+    private bool wasLeftGripHeldLastFrame;
+    private bool wasRightGripHeldLastFrame;
 
     public IEnumerator Init(Player Player)
     {
