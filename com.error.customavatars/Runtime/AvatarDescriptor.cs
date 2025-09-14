@@ -39,6 +39,7 @@ namespace CustomAvatars
         public int blinkRightBlendshape;
 
         public int jawOpenBlendshape;
+        public float voiceMultiplier;
         public EyeSettings eyeSettings = new EyeSettings();
 
         public List<AnimatorParam> parameters = new();

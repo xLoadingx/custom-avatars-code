@@ -18,6 +18,7 @@ public class AvatarDescriptorEditor : Editor
     SerializedProperty parametersProp;
     SerializedProperty eyeSettingsProp;
     SerializedProperty jawOpenBlendshapeProp;
+    SerializedProperty voiceMultiplierProp;
     SerializedProperty defaultBlendshapesProp;
 
     void OnEnable()
@@ -31,6 +32,7 @@ public class AvatarDescriptorEditor : Editor
         bodyShaderSlotProp = serializedObject.FindProperty("bodyShaderSlot");
         parametersProp = serializedObject.FindProperty("parameters");
         jawOpenBlendshapeProp = serializedObject.FindProperty("jawOpenBlendshape");
+        voiceMultiplierProp = serializedObject.FindProperty("voiceMultiplier");
         defaultBlendshapesProp = serializedObject.FindProperty("defaultBlendshapes");
     }
 
@@ -42,12 +44,16 @@ public class AvatarDescriptorEditor : Editor
         EditorGUILayout.PropertyField(avatarPrefabProp, new GUIContent("Avatar Prefab"));
         GameObject prefab = avatarPrefabProp.objectReferenceValue as GameObject;
 
-        SkinnedMeshRenderer smr = null;
-        if (prefab != null)
-            smr = prefab.GetComponentInChildren<SkinnedMeshRenderer>();
-
-        if (smr == null)
+        if (prefab == null)
         {
+            serializedObject.ApplyModifiedProperties();
+            return;
+        }
+
+        Renderer[] renderers = prefab.GetComponentsInChildren<Renderer>(true);
+        if (renderers == null || renderers.Length == 0)
+        {
+            IssueBox("No renderers found in the avatar prefab.", MessageType.Error);
             serializedObject.ApplyModifiedProperties();
             return;
         }
@@ -58,45 +64,19 @@ public class AvatarDescriptorEditor : Editor
 
         EditorGUILayout.Space();
 
-        if (smr.sharedMaterials != null && smr.sharedMaterials.Length > 0)
+        int globalIndex = 0;
+        for (int rIndex = 0; rIndex < renderers.Length; rIndex++)
         {
-            EditorGUILayout.BeginVertical("box");
+            var r = renderers[rIndex];
+            var mats = r.sharedMaterials;
 
-            EditorGUILayout.LabelField("Player Shader Slots", EditorStyles.boldLabel);
-            var mats = smr.sharedMaterials;
+            EditorGUILayout.LabelField($"Renderer: {r.name}", EditorStyles.boldLabel);
+
             for (int i = 0; i < mats.Length; i++)
             {
+                int slotIndex = globalIndex++;
                 string matName = mats[i] ? mats[i].name : "<None>";
-                bool isSelected = desc.playerShaderSlots.Contains(i);
-                var prevColor = GUI.backgroundColor;
-
-                GUI.backgroundColor = isSelected ? new UnityEngine.Color(0.3f, 1f, 0.3f, 0.3f) : UnityEngine.Color.white;
-                EditorGUILayout.BeginHorizontal("box");
-
-                var matIcon = EditorGUIUtility.IconContent("Material Icon");
-                GUILayout.Label(matIcon, GUILayout.Width(20), GUILayout.Height(20));
-
-                bool toggle = EditorGUILayout.ToggleLeft($"[{i}] {matName}", isSelected);
-                if (toggle && !isSelected) desc.playerShaderSlots.Add(i);
-                if (!toggle && isSelected) desc.playerShaderSlots.Remove(i);
-
-                EditorGUILayout.EndHorizontal();
-                GUI.backgroundColor = prevColor;
-            }
-
-            EditorGUILayout.Space();
-
-            EditorGUILayout.LabelField("Body Material (Shows in Rock Cam)", EditorStyles.boldLabel);
-            Material[] allMats = smr.sharedMaterials;
-            List<int> slotIndices = desc.playerShaderSlots.Count > 0
-                ? desc.playerShaderSlots
-                : Enumerable.Range(0, allMats.Length).ToList();
-
-            for (int i = 0; i < slotIndices.Count; i++)
-            {
-                int matIndex = slotIndices[i];
-                string matName = allMats[matIndex] ? allMats[matIndex].name : "<None>";
-                bool isSelected = desc.bodyShaderSlot == matIndex;
+                bool isSelected = desc.playerShaderSlots.Contains(slotIndex);
 
                 var prevColor = GUI.backgroundColor;
                 GUI.backgroundColor = isSelected ? new UnityEngine.Color(0.3f, 1f, 0.3f, 0.3f) : UnityEngine.Color.white;
@@ -104,15 +84,21 @@ public class AvatarDescriptorEditor : Editor
                 EditorGUILayout.BeginHorizontal("box");
                 var matIcon = EditorGUIUtility.IconContent("Material Icon");
                 GUILayout.Label(matIcon, GUILayout.Width(20), GUILayout.Height(20));
-                bool toggle = EditorGUILayout.ToggleLeft($"[{matIndex}] {matName}", isSelected);
-                if (toggle && !isSelected)
-                    desc.bodyShaderSlot = matIndex;
-                EditorGUILayout.EndHorizontal();
 
+                bool toggle = EditorGUILayout.ToggleLeft($"[{slotIndex}] {matName}", isSelected);
+                if (toggle && !isSelected) desc.playerShaderSlots.Add(slotIndex);
+                if (!toggle && isSelected) desc.playerShaderSlots.Remove(slotIndex);
+
+                if (rIndex == 0)
+                {
+                    bool isBody = desc.bodyShaderSlot == slotIndex;
+                    if (GUILayout.Toggle(isBody, "Body", GUILayout.Width(60)))
+                        desc.bodyShaderSlot = slotIndex;
+                }
+
+                EditorGUILayout.EndHorizontal();
                 GUI.backgroundColor = prevColor;
             }
-
-            EditorGUILayout.EndVertical();
         }
 
         EditorGUILayout.Space();
@@ -195,7 +181,8 @@ public class AvatarDescriptorEditor : Editor
 
         // EditorGUILayout.EndVertical();
 
-        if (smr.sharedMesh != null && smr.sharedMesh.blendShapeCount > 0)
+        var smr = renderers.OfType<SkinnedMeshRenderer>().FirstOrDefault();
+        if (smr != null && smr.sharedMesh != null && smr.sharedMesh.blendShapeCount > 0)
         {
             var mesh = smr.sharedMesh;
             string[] blendshapeNames = Enumerable.Range(0, mesh.blendShapeCount)
@@ -205,13 +192,16 @@ public class AvatarDescriptorEditor : Editor
 
             int DrawBlendshapePopup(string label, int currentIndex)
             {
-                string currentName = currentIndex >= 0 && currentIndex < mesh.blendShapeCount
-                    ? mesh.GetBlendShapeName(currentIndex)
-                    : "None";
+                string[] options = new string[mesh.blendShapeCount + 1];
+                options[0] = "None";
+                for (int i = 0; i < mesh.blendShapeCount; i++)
+                    options[i + 1] = mesh.GetBlendShapeName(i);
 
-                int displayIndex = Array.IndexOf(blendshapeNames, currentName);
-                int newDisplayIndex = EditorGUILayout.Popup(label, displayIndex, blendshapeNames);
-                return newDisplayIndex <= 0 ? -1 : mesh.GetBlendShapeIndex(blendshapeNames[newDisplayIndex]);
+                int selected = currentIndex >= 0 ? currentIndex + 1 : 0;
+
+                int newSelected = EditorGUILayout.Popup(label, selected, options);
+
+                return newSelected == 0 ? -1 : newSelected - 1;
             }
 
             EditorGUILayout.Space();
@@ -220,6 +210,9 @@ public class AvatarDescriptorEditor : Editor
             EditorGUILayout.LabelField("Blendshape Settings", EditorStyles.boldLabel);
 
             jawOpenBlendshapeProp.intValue = DrawBlendshapePopup("Jaw Open", jawOpenBlendshapeProp.intValue);
+
+            if (jawOpenBlendshapeProp.intValue != -1)
+                voiceMultiplierProp.floatValue = EditorGUILayout.FloatField("Voice Multiplier", voiceMultiplierProp.floatValue);
 
             EditorGUILayout.Space();
 
@@ -267,9 +260,8 @@ public class AvatarDescriptorEditor : Editor
             leftProp.intValue = DrawBlendshapePopup("Eye Left", leftProp.intValue);
             rightProp.intValue = DrawBlendshapePopup("Eye Right", rightProp.intValue);
 
-            gainProp.floatValue = EditorGUILayout.FloatField("Eye Movement Intensity", gainProp.floatValue);
-
-    
+            if (upProp.intValue != -1 || downProp.intValue != -1 || leftProp.intValue != -1 || rightProp.intValue != -1)
+                gainProp.floatValue = EditorGUILayout.FloatField("Eye Movement Intensity", gainProp.floatValue);
 
             EditorGUILayout.EndVertical();
 
