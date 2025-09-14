@@ -738,10 +738,6 @@ public class AvatarDescriptorExport
     public List<int> playerShaderSlots = new();
     public int bodyShaderSlot = -1;
     public List<BlendshapeDefault> defaultBlendshapes = new();
-    public int blinkType = -1;
-    public int blinkBlendshape = -1;
-    public int blinkLeftBlendshape = -1;
-    public int blinkRightBlendshape = -1;
     public int jawOpenBlendshape = -1;
     public float voiceMultiplier = 1f;
     public EyeSettings eyeSettings = new EyeSettings();

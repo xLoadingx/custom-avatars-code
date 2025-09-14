@@ -946,7 +946,7 @@ namespace CustomAvatars
                         if (Config.swapOriginalMesh)
                             MelonCoroutines.Start(ApplyDefaultBlendshapes());
                         
-                        if (Config.blinkType != (int)AvatarDescriptorExport.BlinkType.None)
+                        if (Config.eyeSettings.blinkType != (int)AvatarDescriptorExport.BlinkType.None)
                         {
                             if (blinkCoroutine != null)
                                 MelonCoroutines.Stop(blinkCoroutine);
@@ -985,10 +985,10 @@ namespace CustomAvatars
 
                 float blinkDuration = Config.eyeSettings.blinkSpeed;
 
-                switch ((AvatarDescriptorExport.BlinkType)Config.blinkType)
+                switch ((AvatarDescriptorExport.BlinkType)Config.eyeSettings.blinkType)
                 {
                     case AvatarDescriptorExport.BlinkType.Single:
-                        int singleIdx = Config.blinkBlendshape;
+                        int singleIdx = Config.eyeSettings.blinkBlendshape;
                         if (singleIdx >= 0)
                         {
                             yield return MelonCoroutines.Start(BlinkBlendshapeLerp(singleIdx, 100f, blinkDuration));
@@ -997,8 +997,8 @@ namespace CustomAvatars
                         break;
 
                     case AvatarDescriptorExport.BlinkType.LeftRight:
-                        int leftIdx = Config.blinkLeftBlendshape;
-                        int rightIdx = Config.blinkRightBlendshape;
+                        int leftIdx = Config.eyeSettings.blinkLeftBlendshape;
+                        int rightIdx = Config.eyeSettings.blinkRightBlendshape;
 
                         if (leftIdx >= 0) MelonCoroutines.Start(BlinkBlendshapeLerp(leftIdx, 100f, blinkDuration));
                         if (rightIdx >= 0) MelonCoroutines.Start(BlinkBlendshapeLerp(rightIdx, 100f, blinkDuration));

@@ -1,7 +1,0 @@
-{
-  "name": "CustomAvatars.Editor",
-  "references": [
-    "CustomAvatars.Runtime"
-  ],
-  "includePlatforms": [ "Editor" ]
-}
