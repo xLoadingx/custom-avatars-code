@@ -3,6 +3,7 @@ using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.Players;
+using Il2CppRUMBLE.Players.Scaling;
 using Il2CppRUMBLE.Players.Subsystems;
 using Il2CppTMPro;
 using MelonLoader;
@@ -468,8 +469,10 @@ public static class RigManager
     // Main backbone of the whole rig system
     // The humanoid system tends to make it a lot easier
     // but if you like pain you can still go the other route
-    public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator, Transform rigRoot, Transform rumbleRoot)
+    public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator, RigDefinition defaultBones, Transform rigRoot, Transform rumbleRoot)
     {
+        rigRoot.rotation = Quaternion.LookRotation(rumbleRoot.forward, rumbleRoot.up);
+        
         if (rigAnimator != null && rigAnimator.isHuman)
         {
             foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
@@ -486,7 +489,7 @@ public static class RigManager
                 // I'll have to find another way if we really want avatar settings
                 rigBone.SetParent(rumbleBone, true);
                 rigBone.localPosition = Vector3.zero;
-                rigBone.localRotation = Quaternion.identity;
+                // rigBone.localRotation = Quaternion.identity;
                 rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
 
                 rigBone.gameObject.AddComponent<CustomRigBone>();
@@ -497,7 +500,7 @@ public static class RigManager
             var rumbleBones = rumbleRoot.GetComponentsInChildren<Transform>(true)
                 .GroupBy(t => t.name)
                 .ToDictionary(g => g.Key, g => g.ToList());
-
+            
             foreach (var rigBone in rigRoot.GetComponentsInChildren<Transform>(true))
             {
                 if (rumbleBones.TryGetValue(rigBone.name, out var rumbleMatches))
@@ -574,9 +577,11 @@ public static class RigManager
 
             // The funny
             Animator customRigAnimator = customRigTransform.GetComponentInParent<Animator>();
+            RigDefinition defaultBones = rumbleAnimator?.GetComponent<RigDefinition>();
             ApplyRigBones(
                 customRigAnimator,
                 rumbleAnimator,
+                defaultBones,
                 rig.transform,
                 skeletonRoot
             );
@@ -613,75 +618,53 @@ public static class RigManager
                 return;
             }
 
-            var rigMats = rigRenderer.materials;
-            var newMats = new Material[rigMats.Length];
-            
-            int bodyIndex = customRig.Config?.bodyShaderSlot ?? 0;
-            
-            // I somehow got this to work
-            // I have seen a few instances of it breaking,
-            // but I haven't found why yet
-            for (int i = 0; i < rigMats.Length; i++)
+            var renderers = rig.GetComponentsInChildren<Renderer>(true);
+
+            int globalIndex = 0;
+            foreach (var r in renderers)
             {
-                Material original = rigMats[i];
-                Material mat;
-            
-                bool isPlayerShader = customRig.Config != null && customRig.Config.playerShaderSlots.Contains(i);
-            
-                if (isPlayerShader)
+                var mats = r.materials;
+                var newMats = new Material[mats.Length];
+
+                for (int localIndex = 0; localIndex < mats.Length; localIndex++, globalIndex++)
                 {
-                    var baseMap = original.GetTexture("_BaseMap");
-                    if (baseMap != null)
+                    Material original = mats[localIndex];
+                    Material mat;
+
+                    bool isPlayerShader = customRig.Config.playerShaderSlots.Contains(globalIndex);
+
+                    if (isPlayerShader)
                     {
+                        var baseMap = original.HasProperty("_BaseMap") ? original.GetTexture("_BaseMap") : null;
                         mat = new Material(customRig.OriginalMaterial);
-                        mat.SetTexture("_ColorAtlas", baseMap);
+                        if (baseMap != null)
+                            mat.SetTexture("_ColorAtlas", baseMap);
                     }
                     else
                     {
-                        Main.instance.LoggerInstance.Warning($"Material {original.name} had no _BaseMap, falling back to original.");
-                        mat = original;
+                        mat = new Material(original);
                     }
-                }
-                else
-                {
-                    mat = new Material(original);
-                }
 
-                if (customRig.Config is { swapOriginalMesh: true })
-                {
-                    if (i == bodyIndex && visuals != null && customRig.IsLocal)
+                    if (mat.HasProperty("_IsLocal"))
+                        mat.SetFloat("_IsLocal", customRig.IsLocal ? 1f : 0f);
+
+                    newMats[localIndex] = mat;
+
+                    if (globalIndex == customRig.Config.bodyShaderSlot && customRig.Config.swapOriginalMesh)
                     {
-                        if (isPlayerShader)
+                        playerRenderer.materials = newMats;
+                        if (visuals != null && customRig.IsLocal)
                         {
-                            var baseMap = original.GetTexture("_BaseMap");
-                            if (baseMap != null)
-                                visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMap);
-                        }
-                        else
-                        {
-                            visuals.NonHeadClippedMaterial = original;
+                            visuals.NonHeadClippedMaterial = mat;
                             if (visuals.NonHeadClippedMaterial.HasFloat("_IsLocal"))
                                 visuals.NonHeadClippedMaterial.SetFloat("_IsLocal", 0f);
                         }
                     }
                 }
-                
-                if (mat.HasFloat("_IsLocal"))
-                    mat.SetFloat("_IsLocal", customRig.IsLocal ? 1f : 0f);
-            
-                newMats[i] = mat;
-            }
 
-            if (customRig.Config.swapOriginalMesh)
-            {
-                playerRenderer.materials = newMats;
+                if (globalIndex != customRig.Config.bodyShaderSlot)
+                    r.materials = newMats;
             }
-            else
-            {
-                rigRenderer.materials = newMats;
-                playerRenderer.material = customRig.OriginalMaterial;
-            }
-                
 
             if (visuals != null && customRig.IsLocal)
             {
@@ -760,6 +743,7 @@ public class AvatarDescriptorExport
     public int blinkLeftBlendshape = -1;
     public int blinkRightBlendshape = -1;
     public int jawOpenBlendshape = -1;
+    public float voiceMultiplier = 1f;
     public EyeSettings eyeSettings = new EyeSettings();
 }
 

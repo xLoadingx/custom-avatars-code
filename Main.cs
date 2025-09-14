@@ -240,9 +240,9 @@ namespace CustomAvatars
                 serverStatusText = newServerStatus.GetComponent<TextMeshPro>();
                 serverStatusText.enableWordWrapping = false;
                 serverStatusText.alignment = TextAlignmentOptions.Center;
+                
+                SetObjectsActive();
             }
-            
-            SetObjectsActive();
             
             sceneInitialized = true;
         }
@@ -395,6 +395,27 @@ namespace CustomAvatars
                         previewCustomRig.Apply(CustomRig.RigState.Original);
                     else
                         previewCustomRig.Apply(CustomRig.RigState.Rigged);
+
+                    // LMAO I have no idea how I came up with this
+                    // but it works somehow so im not touching it
+                    var runtimeAnimator = rig.GetComponent<Animator>();
+                    var previewRigAnimator = newRig.GetComponent<Animator>();
+
+                    if (runtimeAnimator != null && previewRigAnimator != null)
+                    {
+                        foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
+                        {
+                            if (bone == HumanBodyBones.LastBone) continue;
+
+                            Transform playerBone = runtimeAnimator.GetBoneTransform(bone);
+                            Transform rigBone = previewRigAnimator.GetBoneTransform(bone);
+
+                            if (playerBone != null && rigBone != null)
+                            {
+                                rigBone.localRotation = playerBone.localRotation;
+                            }
+                        }
+                    }
                 }
             }, log));
 
