@@ -33,11 +33,6 @@ namespace CustomAvatars
 
         public List<BlendshapeDefault> defaultBlendshapes = new();
 
-        public BlinkType blinkType = BlinkType.None;
-        public int blinkBlendshape;
-        public int blinkLeftBlendshape;
-        public int blinkRightBlendshape;
-
         public int jawOpenBlendshape;
         public float voiceMultiplier;
         public EyeSettings eyeSettings = new EyeSettings();
