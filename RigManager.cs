@@ -466,7 +466,7 @@ public static class RigManager
             instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");
     }
 
-    // Main backbone of the whole rig system
+    // Main backbone (literally) of the whole rig system
     // The humanoid system tends to make it a lot easier
     // but if you like pain you can still go the other route
     public static void ApplyRigBones(Animator rigAnimator, Animator rumbleAnimator, RigDefinition defaultBones, Transform rigRoot, Transform rumbleRoot)
@@ -489,6 +489,7 @@ public static class RigManager
                 // I'll have to find another way if we really want avatar settings
                 rigBone.SetParent(rumbleBone, true);
                 rigBone.localPosition = Vector3.zero;
+                rigBone.localRotation = rigBone.localRotation;
                 // rigBone.localRotation = Quaternion.identity;
                 rigBone.localScale = Vector3.Scale(rigBone.localScale, rumbleBone.localScale);
 
@@ -588,6 +589,9 @@ public static class RigManager
 
             foreach (var collider in customRigTransform.GetComponentsInChildren<Collider>(true))
                 GameObject.Destroy(collider);
+            
+            foreach (var obj in rig.GetComponentsInChildren<Transform>(true))
+                obj.gameObject.layer = 23;
 
             if (rigRenderer.sharedMesh != null)
                 if (customRig.Config.swapOriginalMesh) playerRenderer.sharedMesh = rigRenderer.sharedMesh;
@@ -649,11 +653,18 @@ public static class RigManager
                         mat.SetFloat("_IsLocal", customRig.IsLocal ? 1f : 0f);
 
                     newMats[localIndex] = mat;
-
-                    if (globalIndex == customRig.Config.bodyShaderSlot && customRig.Config.swapOriginalMesh)
+                    
+                    if (globalIndex == customRig.Config.bodyShaderSlot && visuals != null && customRig.IsLocal)
                     {
-                        playerRenderer.materials = newMats;
-                        if (visuals != null && customRig.IsLocal)
+                        visuals.NonHeadClippedMaterial = new Material(visuals.NonHeadClippedMaterial);
+
+                        if (isPlayerShader)
+                        {
+                            var baseMap = original.GetTexture("_BaseMap");
+                            if (baseMap != null)
+                                visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMap);
+                        }
+                        else
                         {
                             visuals.NonHeadClippedMaterial = mat;
                             if (visuals.NonHeadClippedMaterial.HasFloat("_IsLocal"))
@@ -662,7 +673,9 @@ public static class RigManager
                     }
                 }
 
-                if (globalIndex != customRig.Config.bodyShaderSlot)
+                if (r == rigRenderer)
+                    playerRenderer.materials = newMats;
+                else
                     r.materials = newMats;
             }
 
@@ -689,7 +702,7 @@ public static class RigManager
                 {
                     Main.instance.LoggerInstance.Warning("playerRenderer.material is null while assigning to customRigComp");
                 }
-
+            
                 if (rigRenderer.sharedMesh != null)
                 {
                     customRig.RigMesh = UnityEngine.Object.Instantiate(rigRenderer.sharedMesh);
@@ -705,6 +718,11 @@ public static class RigManager
                 GameObject.Destroy(rigRenderer.gameObject);
 
             playerRenderer.enabled = true;
+
+            foreach (var mat in playerRenderer.materials)
+            {
+                MelonLogger.Msg($"It is now the end of changing materials. There is a material {mat.name} with shader {mat.shader.name}.");
+            }
         }
 
         if (skeletonRoot == null || rig == null) return;

@@ -18,7 +18,7 @@ using Main = CustomAvatars.Main;
 using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
 
-[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.1.0", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.2.1", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
 [assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
@@ -161,12 +161,14 @@ namespace CustomAvatars
 
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             Directory.CreateDirectory(filePath);
-            
+
             ApplyAvatars();
 
             // Making objects in code is fun looking
             if (currentScene == "Gym" && !sceneInitialized)
             {
+                Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject().layer = LayerMask.NameToLayer("Default");
+                
                 tryoutModeButton = Calls.GameObjects.Gym.LOGIC.DressingRoom.Controlpanel.Controls
                     .Frameattachment.TryOutModePanel.GetGameObject();
 
@@ -741,7 +743,7 @@ namespace CustomAvatars
                 {
                     int idx = Config.jawOpenBlendshape;
                     if (idx < MeshRenderer.sharedMesh.blendShapeCount)
-                        MeshRenderer.SetBlendShapeWeight(idx, voiceSystem.currentJawOpenPercentage * 100f);
+                        MeshRenderer.SetBlendShapeWeight(idx, Clamp(voiceSystem.currentJawOpenPercentage * 100f * Config.voiceMultiplier, 0, 100));
                 }
 
                 if (Head != null && eyeSystem != null && eyeSystem.CurrentAttentionPoint != null)
