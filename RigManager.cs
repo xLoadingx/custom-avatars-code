@@ -246,6 +246,10 @@ public static class RigManager
             string filePath = isLocal
                 ? Directory.GetFiles(basePath, "*.rumbleavatar").FirstOrDefault()
                 : Path.Combine(opponentPath, playerID);
+            
+            // Hands tend to break when loading rig because the hands have different finger rotatations
+            // than base pose
+            player.Controller.GetSubsystem<PlayerHandPresence>().enabled = false;
 
             if (!isLocal)
             {
@@ -278,6 +282,8 @@ public static class RigManager
             {
                 Main.instance.LoggerInstance.Warning(
                     $"No custom avatar found for {(isLocal ? "you" : player.Data.GeneralData?.PublicUsername ?? "unknown")} at {basePath}");
+
+                player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
 
@@ -292,6 +298,7 @@ public static class RigManager
                 if (File.Exists(rigPath) && !isLocal)
                     File.Delete(rigPath);
                 
+                player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
             
@@ -300,6 +307,7 @@ public static class RigManager
             {
                 Main.instance.LoggerInstance.Error(
                     $"Failed to load 'Rig' GameObject for {(isLocal ? "local player" : player.Data?.GeneralData?.PublicUsername ?? "unknown")} from path {rigPath}");
+                player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
 
@@ -311,12 +319,14 @@ public static class RigManager
             if (player.Controller == null)
             {
                 Main.instance.LoggerInstance.Error("player.Controller is null");
+                player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
 
             if (player.Controller.gameObject == null)
             {
                 Main.instance.LoggerInstance.Error("player.Controller.gameObject is null");
+                player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
 
@@ -324,6 +334,7 @@ public static class RigManager
             if (customRig == null)
             {
                 Main.instance.LoggerInstance.Error("Failed to get or add CustomRig component");
+                player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
 
@@ -379,6 +390,8 @@ public static class RigManager
             // It only gets deeper
             // I wouldn't recommend going here
             ApplyRigToPlayer(player, rigInstance, log);
+
+            player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
 
             if (!isLocal)
             {
@@ -718,11 +731,6 @@ public static class RigManager
                 GameObject.Destroy(rigRenderer.gameObject);
 
             playerRenderer.enabled = true;
-
-            foreach (var mat in playerRenderer.materials)
-            {
-                MelonLogger.Msg($"It is now the end of changing materials. There is a material {mat.name} with shader {mat.shader.name}.");
-            }
         }
 
         if (skeletonRoot == null || rig == null) return;

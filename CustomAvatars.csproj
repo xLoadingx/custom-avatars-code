@@ -11,6 +11,9 @@
     <Reference Include="0Harmony">
       <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\net6\0Harmony.dll</HintPath>
     </Reference>
+    <Reference Include="CloneBending2">
+      <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\Mods\CloneBending2.dll</HintPath>
+    </Reference>
     <Reference Include="Il2CppBucketheadEntertainment.Plugins">
       <HintPath>..\..\..\SteamLibrary\steamapps\common\RUMBLE\MelonLoader\Il2CppAssemblies\Il2CppBucketheadEntertainment.Plugins.dll</HintPath>
     </Reference>

@@ -1,5 +1,6 @@
 ﻿using System.Collections;
 using System.Reflection;
+using HarmonyLib;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Interactions.InteractionBase;
@@ -89,6 +90,7 @@ namespace CustomAvatars
 
         public Mod mod = new();
         public ModSetting<string> reloadKeybind;
+        public ModSetting<bool> reloadToggle;
         public ModSetting<bool> toggleLocal;
         public ModSetting<bool> toggleOthers;
         public ModSetting<bool> toggleVisibleToOthers;
@@ -183,6 +185,9 @@ namespace CustomAvatars
                 InteractionButton interactionButton = refreshAvatarButton.transform.GetChild(1).GetChild(0).GetComponent<InteractionButton>();
                 interactionButton.onPressed.RemoveAllListeners();
                 interactionButton.onPressed.AddListener((UnityAction)(() => { if ((bool)toggleLocal.SavedValue) Initialize(); }));
+                interactionButton.interactionAnimParameter = "nan";
+                interactionButton.InteractionAnimParameterL = "nan";
+                interactionButton.InteractionAnimParameterR = "nan";
                 
                 InteractionButton interactionButtonUpload = uploadAvatarButton.transform.GetChild(1).GetChild(0).GetComponent<InteractionButton>();
                 interactionButtonUpload.onPressed.RemoveAllListeners();
@@ -256,6 +261,76 @@ namespace CustomAvatars
             uploadAvatarButton.SetActive(enabled);
             refreshAvatarButton.SetActive(enabled);
             avatarOptimizationParent.SetActive(enabled);
+        }
+
+        public void CheckClonebending(CustomRig customRig, GameObject rig, bool log)
+        {
+            // Thanks to oreotrollturbo for the type shenanigans
+            var mainClassType = Type.GetType("CloneBending2.Core, CloneBending2");
+            if (mainClassType == null) return;
+            
+            var instanceField = mainClassType.GetField("instance", BindingFlags.Public | BindingFlags.Static);
+            var cloneInstance = instanceField?.GetValue(null);
+            
+            var bodyDoubleField = mainClassType.GetField("bodyDouble", BindingFlags.Instance | BindingFlags.NonPublic);
+            var bodyDouble = (GameObject)bodyDoubleField?.GetValue(cloneInstance);
+
+            if (bodyDouble != null)
+            {
+                LoggerInstance.Msg("CloneBending Installed. Applying Rig.");
+
+                GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
+                    Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
+
+                newRig.name = "RIG - CloneBending Clone";
+                newRig.transform.SetParent(rigParent.transform, true);
+                
+                var smr = bodyDouble.transform.GetChild(1).GetChild(0).GetComponent<SkinnedMeshRenderer>();
+                var cloneCustomRig = bodyDouble.GetComponent<CustomRig>();
+                if (cloneCustomRig != null)
+                {
+                    if (cloneCustomRig.blinkCoroutine != null)
+                        MelonCoroutines.Stop(cloneCustomRig.blinkCoroutine);
+                }
+                else
+                {
+                    cloneCustomRig = bodyDouble.AddComponent<CustomRig>();
+                    cloneCustomRig.PlayerName = "CloneBending Clone";
+                    cloneCustomRig.IsPreview = true;
+                    cloneCustomRig.CaptureOriginal("CloneBending Clone", false, smr, log);
+                }
+
+                cloneCustomRig.CaptureRig(newRig);
+                
+                cloneCustomRig.Config = customRig.Config;
+            
+                RigManager.ApplyRigToSMR(bodyDouble.transform.GetChild(1).GetChild(1), newRig, bodyDouble.transform.GetChild(1).GetComponent<Animator>(), customRig: cloneCustomRig);
+                RigManager.rigs["CloneBending Clone"] = cloneCustomRig;
+                
+                if (!(bool)toggleLocal.SavedValue)
+                    cloneCustomRig.Apply(CustomRig.RigState.Original);
+                else
+                    cloneCustomRig.Apply(CustomRig.RigState.Rigged);
+                
+                var runtimeAnimator = rig.GetComponent<Animator>();
+                var cloneRigAnimator = newRig.GetComponent<Animator>();
+
+                if (runtimeAnimator != null && cloneRigAnimator != null)
+                {
+                    foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
+                    {
+                        if (bone == HumanBodyBones.LastBone) continue;
+
+                        Transform playerBone = runtimeAnimator.GetBoneTransform(bone);
+                        Transform rigBone = cloneRigAnimator.GetBoneTransform(bone);
+
+                        if (playerBone != null && rigBone != null)
+                        {
+                            rigBone.localRotation = playerBone.localRotation;
+                        }
+                    }
+                }
+            }
         }
 
         public void UploadAvatar()
@@ -362,6 +437,7 @@ namespace CustomAvatars
                 
                 if (currentScene == "Gym" && rig != null)
                 {
+                    // Preview Controller in Dressing Room
                     var previewController =
                         Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
 
@@ -372,6 +448,7 @@ namespace CustomAvatars
                     newRig.transform.SetParent(rigParent.transform, true);
                     
                     var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
+                    previewController.transform.GetChild(0).gameObject.layer = 0;
                     var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
                     if (previewCustomRig != null)
                     {
@@ -418,6 +495,9 @@ namespace CustomAvatars
                             }
                         }
                     }
+                    
+                    // CloneBending Clone
+                    CheckClonebending(customRig, rig, log);
                 }
             }, log));
 
@@ -439,47 +519,18 @@ namespace CustomAvatars
 
             if (rigParent && !rigParent.activeSelf)
                 rigParent.SetActive(true);
+
+            if (refreshAvatarButton && !refreshAvatarButton.activeSelf && currentScene == "Gym")
+                refreshAvatarButton.SetActive(true);
         }
 
         // Reload keybind + rig refresh
-        // Reload for other players might need some tweaking
         public override void OnUpdate()
         {
             if (reloadKeybind != null && Enum.TryParse((string)reloadKeybind.SavedValue, true, out KeyCode parsed))
             {
                 if (Input.GetKeyDown(parsed))
-                {
-                    Initialize();
-
-                    var rigsSnapshot = RigManager.rigs.ToArray();
-
-                    foreach (var kv in rigsSnapshot)
-                    {
-                        var id = kv.Key;
-                        var rig = kv.Value;
-
-                        if (rig == null || rig.IsLocal) continue;
-
-                        var player = rig.GetComponent<PlayerController>()?.assignedPlayer ?? Calls.Players.GetAllPlayers()
-                            .ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == id);
-                        if (player == null) continue;
-                    
-                        if (!string.IsNullOrEmpty(rig.AvatarFilePath) && File.Exists(rig.AvatarFilePath))
-                            try { File.Delete(rig.AvatarFilePath); } catch {}
-
-                        RigManager.ClearRig(rig);
-                        Object.Destroy(rig);
-                    
-                        var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
-        
-                        var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
-                        customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
-        
-                        visuals.renderer.material = Main.poseGhostMaterial;
-                    
-                        MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null));
-                    }
-                }
+                    ReloadAllAvatars();
             }
 
             // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
@@ -505,6 +556,41 @@ namespace CustomAvatars
                         }
                     }
                 }
+            }
+        }
+        
+        // Reload for other players might need some tweaking
+        public void ReloadAllAvatars()
+        {
+            Initialize();
+
+            var rigsSnapshot = RigManager.rigs.ToArray();
+
+            foreach (var kv in rigsSnapshot)
+            {
+                var id = kv.Key;
+                var rig = kv.Value;
+
+                if (rig == null || rig.IsLocal) continue;
+
+                var player = rig.GetComponent<PlayerController>()?.assignedPlayer ?? Calls.Players.GetAllPlayers()
+                    .ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == id);
+                if (player == null) continue;
+                    
+                if (!string.IsNullOrEmpty(rig.AvatarFilePath) && File.Exists(rig.AvatarFilePath))
+                    try { File.Delete(rig.AvatarFilePath); } catch {}
+
+                RigManager.ClearRig(rig);
+                Object.Destroy(rig);
+                    
+                var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
+        
+                var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
+                customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
+        
+                visuals.renderer.material = Main.poseGhostMaterial;
+                    
+                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null));
             }
         }
 
@@ -601,6 +687,7 @@ namespace CustomAvatars
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
             reloadKeybind = mod.AddToList("Reload Keybind", nameof(KeyCode.R), "The key that reloads your and other's avatars.", new Tags());
+            reloadToggle = mod.AddToList("Reload Avatar", false, 0, "Reloads all avatars on toggle.", new Tags { DoNotSave = true });
             
             mod.AddToList("<b><#114F11>- Avatar Visibility</color></b>", false, 0, "", new Tags { DoNotSave = true });
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles whether you see your custom avatar locally. This does not affect what other players see.", new Tags());
@@ -620,6 +707,8 @@ namespace CustomAvatars
                 DoNotSave = true
             });
             uploadAvatar.SavedValueChanged += (sender, args) => UploadAvatar();
+
+            reloadToggle.CurrentValueChanged += (sender, args) => ReloadAllAvatars();
 
             toggleOthers.SavedValueChanged += (sender, args) =>
             {
@@ -1022,13 +1111,28 @@ namespace CustomAvatars
 
         private IEnumerator BlinkBlendshapeLerp(int index, float targetWeight, float duration)
         {
-            float startWeight = MeshRenderer.GetBlendShapeWeight(index);
+            if (!MeshRenderer || !MeshRenderer.sharedMesh)
+                yield break;
+
+            if (index < 0 || index >= MeshRenderer.sharedMesh.blendShapeCount)
+                yield break;
+
+            float startWeight;
+            try
+            {
+                startWeight = MeshRenderer.GetBlendShapeWeight(index);
+            }
+            catch
+            {
+                yield break;
+            }
+            
             float elapsed = 0f;
 
             while (elapsed < duration)
             {
                 float t = elapsed / duration;
-                MeshRenderer.SetBlendShapeWeight(index, Mathf.Lerp(startWeight, targetWeight, t));
+                MeshRenderer.SetBlendShapeWeight(index, Lerp(startWeight, targetWeight, t));
                 elapsed += Time.deltaTime;
                 yield return null;
             }
