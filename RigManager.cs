@@ -2,6 +2,7 @@ using System.Collections;
 using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppPhoton.Pun;
+using Il2CppRootMotion.FinalIK;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Scaling;
 using Il2CppRUMBLE.Players.Subsystems;
@@ -26,22 +27,31 @@ public static class RigManager
         instance = mainInstance;
     }
 
+    public static void Log(string message, ConsoleColor color = default)
+    {
+        if (color == default)
+            color = ConsoleColor.White;
+        
+        instance?.LoggerInstance?.MsgPastel(color, message);
+    }
+    
+    public static void Error(string message) => instance?.LoggerInstance?.Error(message);
+    public static void Warning(string message) => instance?.LoggerInstance?.Warning(message);
+
     // Logs optimization stats (verts, mats, textures)
     // A simple version of VRCs system, but it works
     public static void LogStatsForAvatar(GameObject rig)
     {
-        var LoggerInstance = Main.instance.LoggerInstance;
-        
         if (rig == null)
         {
-            LoggerInstance.Warning("LogStatsForAvatar: rig is null");
+            Warning("LogStatsForAvatar: rig is null");
             return;
         }
         
         var smrs = rig.GetComponentsInChildren<SkinnedMeshRenderer>();
         if (smrs.Length == 0)
         {
-            LoggerInstance.Warning("LogStatsForAvatar: No SkinnedMeshRenderer or mesh found");
+            Warning("LogStatsForAvatar: No SkinnedMeshRenderer or mesh found");
             return;
         }
 
@@ -74,7 +84,7 @@ public static class RigManager
                         if (tex.width >= 4096 || tex.height >= 4096)
                         {
                             hasHugeTextures = true;
-                            LoggerInstance.Warning($"[Avatar Optimization] Huge texture on '{mat.name}' ({texName}): {tex.width}x{tex.height}");
+                            Warning($"[Avatar Optimization] Huge texture on '{mat.name}' ({texName}): {tex.width}x{tex.height}");
                         }
                     }
                 }
@@ -83,12 +93,12 @@ public static class RigManager
                 totalPasses += passCount;
                 if (passCount > 7)
                     if (mat.shader != null)
-                        LoggerInstance.Warning($"[Avatar Optimization] Shader '{mat.shader.name}' has {passCount} passes.");
+                        Warning($"[Avatar Optimization] Shader '{mat.shader.name}' has {passCount} passes.");
 
                 if (mat.shader != null && mat.shader.name.ToLower().Contains("tessellation"))
                 {
                     hasHeavyShaders = true;
-                    Main.instance.LoggerInstance.Warning($"[Avatar Optimization] Shader '{mat.shader.name}' uses expensive features.");
+                    Warning($"[Avatar Optimization] Shader '{mat.shader.name}' uses expensive features.");
                 }
             }
         }
@@ -118,10 +128,10 @@ public static class RigManager
             rating = "GOOD";
         }
         
-        MelonLogger.MsgPastel(color, "-------------------------------------------------------------");
-        LoggerInstance.MsgPastel(color, $"[Avatar Optimization] {rating}: {vertexCount} verts, {materialCount} mat(s), {totalTextures} texture(s).");
-        LoggerInstance.MsgPastel(ConsoleColor.Yellow, $"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}");
-        MelonLogger.MsgPastel(color, "-------------------------------------------------------------");
+        Log("-------------------------------------------------------------", color);
+        Log($"[Avatar Optimization] {rating}: {vertexCount} verts, {materialCount} mat(s), {totalTextures} texture(s).", color);
+        Log($"WARNINGS: {(String.IsNullOrEmpty(warnings) ? "None" : warnings.TrimEnd(';'))}", ConsoleColor.Yellow);
+        Log("-------------------------------------------------------------", color);
 
         if (Main.instance.currentScene == "Gym")
         {
@@ -182,31 +192,30 @@ public static class RigManager
     // Somehow feels smoother...
     public static IEnumerator LoadAssetBundleFromFileAsync(string filePath, bool isLocal, Action<AssetBundle> onLoaded)
     {
-        MemoryStream ms = null;
-
+        MemoryStream ms = null; 
         Task loadTask = Task.Run(() =>
         {
-            byte[] bytes = File.ReadAllBytes(filePath);
-
-            if (!isLocal)
-                bytes = RemoteAvatarLoader.XorCrypt(bytes);
-
+            byte[] bytes = File.ReadAllBytes(filePath); 
+            
+            if (!isLocal) 
+                bytes = RemoteAvatarLoader.XorCrypt(bytes); 
+            
             ms = new MemoryStream(bytes);
-        });
-
-        while (!loadTask.IsCompleted)
-            yield return null;
+        }); 
         
+        while (!loadTask.IsCompleted) 
+            yield return null;
+
         if (ms == null)
         {
-            onLoaded?.Invoke(null);
+            onLoaded?.Invoke(null); 
             yield break;
-        }
-
-        ms.Position = 0;
-        Il2CppSystem.IO.Stream il2cppStream = ConvertToIl2CppStream(ms);
-        AssetBundle bundle = AssetBundle.LoadFromStream(il2cppStream);
-
+        } 
+        
+        ms.Position = 0; 
+        Il2CppSystem.IO.Stream il2cppStream = ConvertToIl2CppStream(ms); 
+        AssetBundle bundle = AssetBundle.LoadFromStream(il2cppStream); 
+        
         onLoaded?.Invoke(bundle);
     }
     
@@ -257,19 +266,19 @@ public static class RigManager
                 {
                     if (RemoteAvatarLoader.ShaMatchesLocal(remoteSha, filePath))
                     {
-                        if (log) Main.instance.LoggerInstance.Msg($"Using cached avatar for {playerID}.");
+                        if (log) Log($"Using cached avatar for {playerID}.");
                     }
                     else
                     {
                         if (log)
-                            Main.instance.LoggerInstance.Msg($"Avatar for {playerID} outdated, downloading fresh...");
+                            Log($"Avatar for {playerID} outdated, downloading fresh...");
                         File.Delete(filePath);
                         yield return MelonCoroutines.Start(RemoteAvatarLoader.DownloadToFile(playerID, filePath));
                     }
                 }
                 else
                 {
-                    if (log) Main.instance.LoggerInstance.Msg($"No cached avatar for {playerID}, downloading...");
+                    if (log) Log($"No cached avatar for {playerID}, downloading...");
                     yield return MelonCoroutines.Start(RemoteAvatarLoader.DownloadToFile(playerID, filePath));
                 }
             }
@@ -280,7 +289,7 @@ public static class RigManager
 
             if (string.IsNullOrEmpty(rigPath) || !File.Exists(rigPath))
             {
-                Main.instance.LoggerInstance.Warning(
+                Warning(
                     $"No custom avatar found for {(isLocal ? "you" : player.Data.GeneralData?.PublicUsername ?? "unknown")} at {basePath}");
 
                 player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
@@ -293,7 +302,13 @@ public static class RigManager
 
             if (rigBundle == null)
             {
-                Main.instance.LoggerInstance.Error($"AssetBundle at path {rigPath} was not a valid AssetBundle.");
+                Error("Failed to load AssetBundle.");
+                Error($"Path: {rigPath}");
+                Error($"Player: {(isLocal ? "Local Player" : player.Data?.GeneralData?.PublicUsername ?? "Unknown")}");
+                Error("Possible causes:");
+                Error("  - The file is corrupted or incomplete.");
+                Error("  - It is not an AssetBundle built for the correct Unity version.");
+                Error("  - The file was not fully downloaded or unpacked.");
                 
                 if (File.Exists(rigPath) && !isLocal)
                     File.Delete(rigPath);
@@ -305,9 +320,15 @@ public static class RigManager
             GameObject rigPrefab = rigBundle?.LoadAsset<GameObject>("Rig");
             if (rigPrefab == null)
             {
-                Main.instance.LoggerInstance.Error(
-                    $"Failed to load 'Rig' GameObject for {(isLocal ? "local player" : player.Data?.GeneralData?.PublicUsername ?? "unknown")} from path {rigPath}");
+                Error("'Rig' GameObject missing in AssetBundle.");
+                Error($"  Bundle Path: {rigPath}");
+                Error($"  Player: {(isLocal ? "Local Player" : player.Data?.GeneralData?.PublicUsername ?? "Unknown")}");
+                Error("   Possible causes:");
+                Error("      - The AssetBundle was built incorrectly (missing 'Rig' root object).");
+                Error("      - The prefab name is different or nested incorrectly.");
+                
                 player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
+                rigBundle.Unload(true);
                 yield break;
             }
 
@@ -318,23 +339,26 @@ public static class RigManager
             // despite never saying they are null, it likes them here either way
             if (player.Controller == null)
             {
-                Main.instance.LoggerInstance.Error("player.Controller is null");
+                Error("player.Controller is null");
                 player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
+                rigBundle.Unload(true);
                 yield break;
             }
 
             if (player.Controller.gameObject == null)
             {
-                Main.instance.LoggerInstance.Error("player.Controller.gameObject is null");
+                Error("player.Controller.gameObject is null");
                 player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
+                rigBundle.Unload(true);
                 yield break;
             }
 
             var customRig = player.Controller.gameObject.GetOrAddComponent<CustomRig>();
             if (customRig == null)
             {
-                Main.instance.LoggerInstance.Error("Failed to get or add CustomRig component");
+                Error("Failed to get or add CustomRig component");
                 player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
+                rigBundle.Unload(true);
                 yield break;
             }
 
@@ -344,7 +368,7 @@ public static class RigManager
 
             if (jsonAsset == null)
             {
-                Main.instance.LoggerInstance.Warning(
+                Warning(
                     "Config.json not found in rig bundle. Make sure your avatar has a AvatarDescriptor that was exported.");
             }
             else
@@ -357,7 +381,7 @@ public static class RigManager
                 }
                 catch (Exception ex)
                 {
-                    Main.instance.LoggerInstance.Error($"Failed to parse avatar config: {ex.Message}");
+                    Error($"Failed to parse avatar config: {ex.Message}");
                 }
             }
 
@@ -368,7 +392,7 @@ public static class RigManager
                     if (blendshape.index >= 0)
                         customRig.MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
                     else
-                        Main.instance.LoggerInstance.Warning(
+                        Warning(
                             $"Blendshape '{blendshape.name}' not found on mesh '{customRig.MeshRenderer.sharedMesh.name}'");
                 }
             }
@@ -379,7 +403,7 @@ public static class RigManager
             rigBundle.Unload(false);
 
             if (log)
-                Main.instance.LoggerInstance.Msg($"Loading rig for player {playerID}");
+                Log($"Loading rig for player {playerID}");
 
             if (rigInstance != null && log && (
                     ((bool)Main.instance.logAvatarStats.SavedValue && isLocal)
@@ -400,17 +424,6 @@ public static class RigManager
                 ResolveRigState(player, rig);
             }
 
-            // Fixes clipping issue with (most) rigs close to camera
-            var camObj = GameObject.Find($"RumbleHud_{playerID}_portraitCamera");
-            var cam = camObj?.GetComponent<Camera>();
-            if (cam != null)
-                cam.nearClipPlane = 0.01f;
-
-            // Only works if RumbleHud actually exists, so thats neat.
-            var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
-            var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
-            method?.Invoke(null, new object[] { Main.instance.currentScene == "Gym" });
-
             onLoaded?.Invoke(rigInstance);
         }
         finally
@@ -418,6 +431,24 @@ public static class RigManager
             activeLoads--;
             loadingPlayers.Remove(playerID);
         }
+    }
+
+    public static IEnumerator FixHUDCamera(string masterID, Action done = null)
+    {
+        // Fixes clipping issue with (most) rigs close to camera
+        var camObj = GameObject.Find($"RumbleHud_{masterID}_portraitCamera");
+        var cam = camObj?.GetComponent<Camera>();
+        if (cam != null)
+            cam.nearClipPlane = 0.01f;
+
+        // Only works if RumbleHud actually exists, so thats neat.
+        var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
+        var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
+        method?.Invoke(null, new object[] { Main.instance.currentScene == "Gym" });
+
+        yield return new WaitForSeconds(2f);
+
+        done?.Invoke();
     }
 
     // Basically has to merge like 3 settings into one
@@ -476,7 +507,7 @@ public static class RigManager
         ApplyRigToSMR(playerRigRoot, rig, player.Controller.transform.GetChild(1).GetComponent<Animator>(), player.Controller.GetComponent<CustomRig>(), visuals: player.Controller.GetSubsystem<PlayerVisuals>());
         
         if (log)
-            instance.LoggerInstance.Msg($"Applied custom rig to player {playerUsername}.");
+            Log($"Applied custom rig to player {playerUsername}.");
     }
 
     // Main backbone (literally) of the whole rig system
@@ -555,22 +586,22 @@ public static class RigManager
         {
             if (customRig == null)
             {
-                Main.instance.LoggerInstance.Error("customRig is null");
+                Error("customRig is null");
                 return;
             }
             if (skeletonRoot == null)
             {
-                Main.instance.LoggerInstance.Error("skeletonRoot is null");
+                Error("skeletonRoot is null");
                 return;
             }
             if (playerRenderer == null)
             {
-                Main.instance.LoggerInstance.Error("playerRenderer is null");
+                Error("playerRenderer is null");
                 return;
             }
             if (rigRenderer == null)
             {
-                Main.instance.LoggerInstance.Error("rigRenderer is null");
+                Error("rigRenderer is null");
                 return;
             }
 
@@ -609,7 +640,7 @@ public static class RigManager
             if (rigRenderer.sharedMesh != null)
                 if (customRig.Config.swapOriginalMesh) playerRenderer.sharedMesh = rigRenderer.sharedMesh;
             else
-                Main.instance.LoggerInstance.Warning("rigRenderer.sharedMesh is null");
+                Warning("rigRenderer.sharedMesh is null");
 
             if (rigRenderer.bones is { Length: > 0 })
             {
@@ -621,17 +652,17 @@ public static class RigManager
             }
             else
             {
-                Main.instance.LoggerInstance.Warning("rigRenderer.bones array is null or empty");
+                Warning("rigRenderer.bones array is null or empty");
             }
 
             if (playerRenderer.material == null)
             {
-                Main.instance.LoggerInstance.Error("playerRenderer.material is null");
+                Error("playerRenderer.material is null");
                 return;
             }
             if (rigRenderer.material == null)
             {
-                Main.instance.LoggerInstance.Error("rigRenderer.material is null");
+                Error("rigRenderer.material is null");
                 return;
             }
 
@@ -667,7 +698,7 @@ public static class RigManager
 
                     newMats[localIndex] = mat;
                     
-                    if (globalIndex == customRig.Config.bodyShaderSlot && visuals != null && customRig.IsLocal)
+                    if (globalIndex == customRig.Config.bodyShaderSlot && visuals != null && customRig.IsLocal && customRig.Config.swapOriginalMesh)
                     {
                         visuals.NonHeadClippedMaterial = new Material(visuals.NonHeadClippedMaterial);
 
@@ -686,7 +717,7 @@ public static class RigManager
                     }
                 }
 
-                if (r == rigRenderer)
+                if (r == rigRenderer && customRig.Config.swapOriginalMesh)
                     playerRenderer.materials = newMats;
                 else
                     r.materials = newMats;
@@ -713,7 +744,7 @@ public static class RigManager
                 }
                 else
                 {
-                    Main.instance.LoggerInstance.Warning("playerRenderer.material is null while assigning to customRigComp");
+                    Warning("playerRenderer.material is null while assigning to customRigComp");
                 }
             
                 if (rigRenderer.sharedMesh != null)
@@ -723,7 +754,7 @@ public static class RigManager
                 }
                 else
                 {
-                    Main.instance.LoggerInstance.Warning("rigRenderer.sharedMesh is null while assigning to customRigComp");
+                    Warning("rigRenderer.sharedMesh is null while assigning to customRigComp");
                 }
             }
 

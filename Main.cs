@@ -14,12 +14,13 @@ using MelonLoader;
 using MelonLoader.Utils;
 using RumbleModUI;
 using UnityEngine.Events;
+using UnityEngine.Rendering;
 using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 using Main = CustomAvatars.Main;
 using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
 
-[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.2.1", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.2.2", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
 [assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
@@ -107,6 +108,9 @@ namespace CustomAvatars
 
         public static Material poseGhostMaterial;
 
+        public GameObject bodyDouble;
+        public GameObject currentRig;
+
         public Main()
         {
             instance = this;
@@ -169,8 +173,6 @@ namespace CustomAvatars
             // Making objects in code is fun looking
             if (currentScene == "Gym" && !sceneInitialized)
             {
-                Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject().layer = LayerMask.NameToLayer("Default");
-                
                 tryoutModeButton = Calls.GameObjects.Gym.LOGIC.DressingRoom.Controlpanel.Controls
                     .Frameattachment.TryOutModePanel.GetGameObject();
 
@@ -262,7 +264,7 @@ namespace CustomAvatars
             refreshAvatarButton.SetActive(enabled);
             avatarOptimizationParent.SetActive(enabled);
         }
-
+        
         public void CheckClonebending(CustomRig customRig, GameObject rig, bool log)
         {
             // Thanks to oreotrollturbo for the type shenanigans
@@ -273,12 +275,10 @@ namespace CustomAvatars
             var cloneInstance = instanceField?.GetValue(null);
             
             var bodyDoubleField = mainClassType.GetField("bodyDouble", BindingFlags.Instance | BindingFlags.NonPublic);
-            var bodyDouble = (GameObject)bodyDoubleField?.GetValue(cloneInstance);
+            bodyDouble = (GameObject)bodyDoubleField?.GetValue(cloneInstance);
 
             if (bodyDouble != null)
             {
-                LoggerInstance.Msg("CloneBending Installed. Applying Rig.");
-
                 GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
                     Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
 
@@ -370,7 +370,7 @@ namespace CustomAvatars
             }, progress =>
             {
                 if (progressBarMat == null) return;
-                displayedProgress = Mathf.Lerp(displayedProgress, progress, Time.deltaTime * 10f);
+                displayedProgress = Lerp(displayedProgress, progress, Time.deltaTime * 10f);
                 progressBarMat.SetFloat("_RC_Current", displayedProgress);
             }, serverStatusText);
         }
@@ -448,7 +448,7 @@ namespace CustomAvatars
                     newRig.transform.SetParent(rigParent.transform, true);
                     
                     var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
-                    previewController.transform.GetChild(0).gameObject.layer = 0;
+                    previewController.transform.GetChild(0).gameObject.layer = LayerMask.NameToLayer("PlayerController");
                     var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
                     if (previewCustomRig != null)
                     {
@@ -495,9 +495,13 @@ namespace CustomAvatars
                             }
                         }
                     }
+
+                    currentRig = rig;
                     
                     // CloneBending Clone
-                    CheckClonebending(customRig, rig, log);
+                    CheckClonebending(customRig, currentRig, log);
+                    
+                    MelonCoroutines.Start(RigManager.FixHUDCamera(localPlayer.Data.GeneralData.PlayFabMasterId, () => { previewController.transform.GetChild(0).gameObject.layer = 0; }));
                 }
             }, log));
 

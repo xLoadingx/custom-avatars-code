@@ -29,7 +29,10 @@ public class Patches
         
                 visuals.renderer.material = Main.poseGhostMaterial;
                     
-                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null, true, avatarDetails.returnedSha));
+                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, (rig) =>
+                {
+                    MelonCoroutines.Start(RigManager.FixHUDCamera(player.Data.GeneralData.PlayFabMasterId));
+                }, true, avatarDetails.returnedSha));
             })
         );
     }
