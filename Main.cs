@@ -20,7 +20,7 @@ using Main = CustomAvatars.Main;
 using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
 
-[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.2.2", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.2.3", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
 [assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
@@ -28,6 +28,12 @@ using static UnityEngine.Mathf;
 
 namespace CustomAvatars
 {
+    public static class BuildInfo
+    {
+        public const string Name = "CustomAvatars";
+        public const string Version = "1.2.3";
+    }
+    
     public static class Extensions
     {
         public static string TrimString(this string str) => System.Text.RegularExpressions.Regex.Replace(str, "<.*?>|\\(.*?\\)|[^a-zA-Z0-9_ ]", "").Trim();
@@ -80,6 +86,8 @@ namespace CustomAvatars
         public bool sceneInitialized;
         public static Main instance;
 
+        public CustomRig localRig;
+
         public GameObject rigParent;
         public GameObject avatarOptimizationParent;
         public GameObject refreshAvatarButton;
@@ -104,7 +112,7 @@ namespace CustomAvatars
 
         public ModSetting<bool> perPlayerHeader;
         public Dictionary<CustomRig, ModSetting<bool>> perPlayerToggles = new();
-        private Dictionary<int, object> lastAvatars = new();
+        private Dictionary<int, Hashtable> lastProps = new();
 
         public static Material poseGhostMaterial;
 
@@ -163,7 +171,7 @@ namespace CustomAvatars
         public void Initialize()
         {
             RigManager.ClearRigs();
-            lastAvatars.Clear();
+            lastProps.Clear();
 
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             Directory.CreateDirectory(filePath);
@@ -253,6 +261,14 @@ namespace CustomAvatars
                 SetObjectsActive();
             }
             
+            // Mod version
+            if (PhotonNetwork.InRoom)
+            {
+                var props = new Hashtable();
+                props["CA_ModVersion"] = BuildInfo.Version;
+                PhotonNetwork.LocalPlayer.SetCustomProperties(props);
+            }
+            
             sceneInitialized = true;
         }
 
@@ -315,7 +331,7 @@ namespace CustomAvatars
                 var runtimeAnimator = rig.GetComponent<Animator>();
                 var cloneRigAnimator = newRig.GetComponent<Animator>();
 
-                if (runtimeAnimator != null && cloneRigAnimator != null)
+                if (runtimeAnimator != null && cloneRigAnimator != null && cloneRigAnimator.isHuman)
                 {
                     foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
                     {
@@ -351,25 +367,31 @@ namespace CustomAvatars
             // Actions are cool
             RemoteAvatarLoader.UploadBundle(masterId, rigBundle, () =>
             {
-                uploadProgressBar.SetActive(true);
-                progressBarMat = uploadProgressBar.GetComponent<MeshRenderer>().material;
-                progressBarMat.SetFloat("_RC_Current", 0f);
+                if (currentScene == "Gym")
+                {
+                    uploadProgressBar.SetActive(true);
+                    progressBarMat = uploadProgressBar.GetComponent<MeshRenderer>().material;
+                    progressBarMat.SetFloat("_RC_Current", 0f);
 
-                serverStatusText.gameObject.transform.localPosition = new Vector3(-1.9309f, 0.359f, -0.4545f);
-                serverStatusText.color = Color.yellow;
+                    serverStatusText.gameObject.transform.localPosition = new Vector3(-1.9309f, 0.359f, -0.4545f);
+                    serverStatusText.color = Color.yellow;
+                }
             }, (success, skipped) =>
             {
-                uploadProgressBar.SetActive(false);
-                serverStatus = success ? (Color.cyan, "Up To Date") : (Color.red, "Not Uploaded");
-                serverStatusText.color = serverStatus.color;
-                serverStatusText.text = serverStatus.status;
-                serverStatusText.gameObject.transform.localPosition = new Vector3(-1.9309f, 0.2499f, -0.4545f);
+                if (currentScene == "Gym")
+                {
+                    uploadProgressBar.SetActive(false);
+                    serverStatus = success ? (Color.cyan, "Up To Date") : (Color.red, "Not Uploaded");
+                    serverStatusText.color = serverStatus.color;
+                    serverStatusText.text = serverStatus.status;
+                    serverStatusText.gameObject.transform.localPosition = new Vector3(-1.9309f, 0.2499f, -0.4545f);
+                }
                 
                 if (skipped) return;
                 LoggerInstance.Msg($"{(success ? "File uploaded successfully!" : "Upload failed.")}");
             }, progress =>
             {
-                if (progressBarMat == null) return;
+                if (progressBarMat == null || currentScene != "Gym") return;
                 displayedProgress = Lerp(displayedProgress, progress, Time.deltaTime * 10f);
                 progressBarMat.SetFloat("_RC_Current", displayedProgress);
             }, serverStatusText);
@@ -396,12 +418,16 @@ namespace CustomAvatars
                     localPlayer.Controller.GetSubsystem<PlayerVisuals>().renderer,
                     log
                 );
+
+                localRig = customRig;
             }
             else
             {
                 if (customRig.blinkCoroutine != null)
                     MelonCoroutines.Stop(customRig.blinkCoroutine);
             }
+            
+            
             
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
@@ -526,6 +552,38 @@ namespace CustomAvatars
 
             if (refreshAvatarButton && !refreshAvatarButton.activeSelf && currentScene == "Gym")
                 refreshAvatarButton.SetActive(true);
+            
+            // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
+            if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
+            {
+                foreach (var player in PhotonNetwork.PlayerList)
+                {
+                    if (player.CustomProperties == null || player == PhotonNetwork.LocalPlayer) 
+                        continue;
+
+                    if (!lastProps.TryGetValue(player.ActorNumber, out var oldProps))
+                        oldProps = new Hashtable();
+                    
+                    var props = player.CustomProperties;
+                    if (props != null)
+                    {
+                        // Visiblity check
+                        if (props.TryGetValue("CA_Avatar", out var avatarVal))
+                        {
+                            if (!oldProps.TryGetValue("CA_Avatar", out var oldAvatarVal) || !Equals(oldAvatarVal, avatarVal))
+                            {
+                                oldProps["CA_Avatar"] = avatarVal;
+
+                                Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
+                                if (rumblePlayer.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                                    RigManager.ResolveRigState(rumblePlayer, rig);
+                            }
+                        }
+                    
+                        // Could add more checks here
+                    }
+                }
+            }
         }
 
         // Reload keybind + rig refresh
@@ -535,31 +593,6 @@ namespace CustomAvatars
             {
                 if (Input.GetKeyDown(parsed))
                     ReloadAllAvatars();
-            }
-
-            // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
-            if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
-            {
-                foreach (var player in PhotonNetwork.PlayerList)
-                {
-                    if (player.CustomProperties == null || player == PhotonNetwork.LocalPlayer) continue;
-
-                    if (player.CustomProperties.TryGetValue("CA_Avatar", out var value))
-                    {
-                        if (!lastAvatars.TryGetValue(player.ActorNumber, out var old) || !Equals(old, value))
-                        {
-                            lastAvatars[player.ActorNumber] = value;
-                            
-                            Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
-                            if (rumblePlayer?.Controller == null) continue;
-                            
-                            var rig = rumblePlayer.Controller.GetComponent<CustomRig>();
-                            if (rig == null) continue;
-
-                            RigManager.ResolveRigState(rumblePlayer, rig);
-                        }
-                    }
-                }
             }
         }
         
@@ -1005,58 +1038,61 @@ namespace CustomAvatars
 
         public void Apply(RigState state)
         {
-            switch (state)
+            try
             {
-                case RigState.Original:
-                    MeshRenderer.materials = new[] { OriginalMaterial };
-                    MeshRenderer.bones = OriginalBones;
-                    MeshRenderer.sharedMesh = OriginalMesh;
-                    Root.SetActive(false);
+                switch (state)
+                {
+                    case RigState.Original:
+                        MeshRenderer.materials = new[] { OriginalMaterial };
+                        MeshRenderer.bones = OriginalBones;
+                        MeshRenderer.sharedMesh = OriginalMesh;
+                        Root.SetActive(false);
 
-                    foreach (var bone in RigBones)
-                        bone.gameObject.SetActive(false);
-                    
-                    if (playerVisuals != null && IsLocal)
-                        playerVisuals.NonHeadClippedMaterial = OriginalVisualsMaterial;
-                    
-                    if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
-                    break;
-                case RigState.Rigged:
-                    if (Config.swapOriginalMesh)
-                    {
-                        MeshRenderer.materials = RigMaterials;
-                        MeshRenderer.bones = RigBones;
-                        MeshRenderer.sharedMesh = RigMesh;
+                        foreach (var bone in RigBones)
+                            bone.gameObject.SetActive(false);
                         
                         if (playerVisuals != null && IsLocal)
-                            playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
-                    }
-                    Root.SetActive(true);
-
-                    foreach (var bone in RigBones)
-                        bone.gameObject.SetActive(true);
-                    
-                    if (Config != null)
-                    {
-                        if (Config.swapOriginalMesh)
-                            MelonCoroutines.Start(ApplyDefaultBlendshapes());
+                            playerVisuals.NonHeadClippedMaterial = OriginalVisualsMaterial;
                         
-                        if (Config.eyeSettings.blinkType != (int)AvatarDescriptorExport.BlinkType.None)
+                        if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
+                        break;
+                    case RigState.Rigged:
+                        if (Config.swapOriginalMesh)
                         {
-                            if (blinkCoroutine != null)
-                                MelonCoroutines.Stop(blinkCoroutine);
-
-                            blinkCoroutine = MelonCoroutines.Start(AutoBlinkCoroutine());
+                            MeshRenderer.materials = RigMaterials;
+                            MeshRenderer.bones = RigBones;
+                            MeshRenderer.sharedMesh = RigMesh;
+                            
+                            if (playerVisuals != null && IsLocal)
+                                playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
                         }
-                    }
+                        Root.SetActive(true);
 
-                    if (!Main.instance.perPlayerToggles.ContainsKey(this) && !IsLocal && !IsPreview)
-                        Main.instance.AddRigToList(this);
-                    
-                    break;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(state), state, null);
-            }
+                        foreach (var bone in RigBones)
+                            bone.gameObject.SetActive(true);
+                        
+                        if (Config != null)
+                        {
+                            if (Config.swapOriginalMesh)
+                                MelonCoroutines.Start(ApplyDefaultBlendshapes());
+                            
+                            if (Config.eyeSettings.blinkType != (int)AvatarDescriptorExport.BlinkType.None)
+                            {
+                                if (blinkCoroutine != null)
+                                    MelonCoroutines.Stop(blinkCoroutine);
+
+                                blinkCoroutine = MelonCoroutines.Start(AutoBlinkCoroutine());
+                            }
+                        }
+
+                        if (!Main.instance.perPlayerToggles.ContainsKey(this) && !IsLocal && !IsPreview)
+                            Main.instance.AddRigToList(this);
+                        
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(state), state, null);
+                }
+            } catch {}
         }
 
         private IEnumerator ApplyDefaultBlendshapes()

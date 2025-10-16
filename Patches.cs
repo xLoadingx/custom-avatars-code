@@ -1,8 +1,11 @@
+using System.Collections;
 using UnityEngine;
 using HarmonyLib;
+using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
+using Il2CppTMPro;
 using MelonLoader;
 using RumbleModdingAPI;
 
@@ -49,6 +52,50 @@ public class Patches
                 loadedPlayers.Add(masterId);
             
             ApplyRig(player);
+
+            MelonCoroutines.Start(CheckForMod(player));
+        }
+
+        private static IEnumerator CheckForMod(Player player)
+        {
+            yield return new WaitForSeconds(1f);
+            
+            var photonPlayer = PhotonNetwork.CurrentRoom?.GetPlayer(player.Data.GeneralData.ActorNo);
+            var props = photonPlayer?.CustomProperties;
+            bool isNewerVersion = false;
+                
+            if (props != null)
+            {
+                if (props.TryGetValue("CA_ModVersion", out var remoteVerObj) &&
+                    PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue("CA_ModVersion", out var localVerObj))
+                {
+                    string remoteVer = remoteVerObj?.ToString() ?? "Unknown";
+                    string localVer = localVerObj?.ToString() ?? "Unknown";
+
+                    var tag = Calls.Create.NewText(
+                        "[CustomAvatars]",
+                        0.5f,
+                        new Color(0, 0.8f, 0, 1),
+                        Vector3.zero,
+                        Quaternion.identity
+                    );
+
+                    tag.transform.SetParent(player.Controller.transform.GetChild(9));
+
+                    tag.name = "[CustomAvatars]";
+                    tag.transform.localRotation = Quaternion.Euler(0, 180, 0);
+                    tag.transform.localPosition = new Vector3(-0.148f, 0.1484f, 0f);
+
+                    if (Version.TryParse(remoteVer, out var rV) && Version.TryParse(localVer, out var lV))
+                    {
+                        if (rV > lV)
+                        {
+                            tag.GetComponent<TextMeshPro>().color = Color.cyan;
+                            isNewerVersion = true;
+                        }
+                    }
+                }
+            }
         }
     }
 

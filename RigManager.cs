@@ -419,9 +419,11 @@ public static class RigManager
 
             if (!isLocal)
             {
-                var rig = player.Controller.GetComponent<CustomRig>();
-                Main.instance.AddRigToList(customRig);
-                ResolveRigState(player, rig);
+                if (player.Controller.TryGetComponent<CustomRig>(out var rig))
+                {
+                    Main.instance.AddRigToList(customRig);
+                    ResolveRigState(player, rig);
+                }
             }
 
             onLoaded?.Invoke(rigInstance);
@@ -633,9 +635,11 @@ public static class RigManager
 
             foreach (var collider in customRigTransform.GetComponentsInChildren<Collider>(true))
                 GameObject.Destroy(collider);
-            
+
             foreach (var obj in rig.GetComponentsInChildren<Transform>(true))
-                obj.gameObject.layer = 23;
+            {
+                obj.gameObject.layer = customRig.Config.swapOriginalMesh ? 23 : 0;
+            }
 
             if (rigRenderer.sharedMesh != null)
                 if (customRig.Config.swapOriginalMesh) playerRenderer.sharedMesh = rigRenderer.sharedMesh;
@@ -728,6 +732,9 @@ public static class RigManager
                 customRig.RigVisualsMaterial = new Material(visuals.NonHeadClippedMaterial);
                 customRig.RigVisualsMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
             }
+            
+            if (!customRig.Config.swapOriginalMesh)
+                playerRenderer.material = customRig.OriginalMaterial;
 
             if (customRig != null)
             {
