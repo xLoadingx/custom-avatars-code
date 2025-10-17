@@ -38,6 +38,7 @@ public class Patches
                 {
                     MelonCoroutines.Start(RigManager.FixHUDCamera(player.Data.GeneralData.PlayFabMasterId));
                     MelonCoroutines.Start(CheckForMod(player));
+                    RigManager.UpdateVisibilityProps();
                 }, true, avatarDetails.returnedSha));
             })
         );
@@ -72,6 +73,7 @@ public class Patches
                 }
 
                 var tagClone = GameObject.Instantiate(Main.instance.tagObject, player.Controller?.transform.GetChild(9));
+                tagClone.name = "CustomAvatarTag";
                 tagClone.transform.localScale = Vector3.one * 0.04f;
                 tagClone.transform.localPosition = new Vector3(0.2301f, -0.1633f, 0);
                 

@@ -571,7 +571,7 @@ namespace CustomAvatars
                 avatarOptimizationParent.SetActive(true);
             }
             
-            // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
+            
             if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
             {
                 foreach (var player in PhotonNetwork.PlayerList)
@@ -584,24 +584,45 @@ namespace CustomAvatars
                         oldProps = new Hashtable();
                         lastProps[player.ActorNumber] = oldProps;
                     }
+
+                    Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
                     
                     var props = player.CustomProperties;
                     if (props != null)
                     {
-                        // Visiblity check
+                        // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
                         if (props.TryGetValue("CA_Avatar", out var avatarVal))
                         {
                             if (!oldProps.TryGetValue("CA_Avatar", out var oldAvatarVal) || !Equals(oldAvatarVal, avatarVal))
                             {
                                 oldProps["CA_Avatar"] = avatarVal;
 
-                                Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
-                                if (rumblePlayer.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                                if (rumblePlayer?.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
                                     RigManager.ResolveRigState(rumblePlayer, rig);
                             }
                         }
-                    
-                        // Could add more checks here
+
+                        if (props.TryGetValue("CA_VisibilityMap", out var visVal))
+                        {
+                            if (!oldProps.TryGetValue("CA_VisibilityMap", out var oldVisVal) || !Equals(oldVisVal, visVal))
+                            {
+                                oldProps["CA_VisibilityMap"] = visVal;
+
+                                bool canSeeMe = RigManager.CanPlayerSeeMe(player);
+
+                                if (rumblePlayer?.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                                {
+                                    var tagObj = rumblePlayer.Controller.transform.GetChild(9).Find("CustomAvatarTag");
+
+                                    if (tagObj != null && tagObj.TryGetComponent<SpriteRenderer>(out var sr))
+                                    {
+                                        sr.color = canSeeMe
+                                            ? Color.white
+                                            : new Color(1f, 0.5f, 0.5f, 1f);
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -634,6 +655,8 @@ namespace CustomAvatars
                 {
                     if (toggleOthers.GetValue())
                         rig.Apply(entry.Toggle.GetValue() ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                    
+                    RigManager.UpdateVisibilityProps();
                 };
 
                 entry.ReloadButton = mod.AddToList("   - Reload", false, 0, $"Reloads the avatar for {rig.PlayerName} <#FFF>apon clicking the button.", new Tags { DoNotSave = true });
@@ -743,19 +766,28 @@ namespace CustomAvatars
 
             reloadToggle.CurrentValueChanged += (sender, args) => Initialize();
 
-            toggleOthers.SavedValueChanged += (sender, args) =>
+            void UpdateAllPlayers()
             {
                 foreach (var rig in RigManager.rigs)
                 {
                     if (rig.Key == Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId) continue;
                     if (rig.Key == "Preview Controller (Dressing Room)") continue;
+                    if (rig.Key == "CloneBending Clone") continue;
 
                     var player = Calls.Players.GetAllPlayers().ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == rig.Key);
                     RigManager.ResolveRigState(player, rig.Value);
                 }
                 
                 RegeneratePortraits();
+            }
+
+            toggleOthers.SavedValueChanged += (sender, args) =>
+            {
+                UpdateAllPlayers();
+                RigManager.UpdateVisibilityProps();
             };
+
+            toggleIfNewerVersion.SavedValueChanged += (sender, args) => { UpdateAllPlayers(); };
             
             toggleLocal.SavedValueChanged += (sender, args) =>
             {
