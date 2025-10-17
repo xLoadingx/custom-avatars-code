@@ -19,8 +19,8 @@ public static class RigManager
 {
     private static Main instance;
     public static readonly Dictionary<string, CustomRig> rigs = new();
-    private static readonly HashSet<string> loadingPlayers = new();
-    private static int activeLoads;
+    public static readonly HashSet<string> loadingPlayers = new();
+    public static int activeLoads;
 
     public static void Initialize(Main mainInstance)
     {

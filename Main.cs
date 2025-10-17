@@ -14,13 +14,14 @@ using MelonLoader;
 using MelonLoader.Utils;
 using RumbleModUI;
 using UnityEngine.Events;
+using UnityEngine.Playables;
 using UnityEngine.Rendering;
 using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 using Main = CustomAvatars.Main;
 using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
 
-[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.2.3", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.3.0", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
 [assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
@@ -31,7 +32,7 @@ namespace CustomAvatars
     public static class BuildInfo
     {
         public const string Name = "CustomAvatars";
-        public const string Version = "1.2.3";
+        public const string Version = "1.3.0";
     }
     
     public static class Extensions
@@ -672,11 +673,19 @@ namespace CustomAvatars
                     RigManager.UpdateVisibilityProps();
                 };
 
-                entry.ReloadButton = mod.AddToList("   - Reload", false, 0, $"Reloads the avatar for {rig.PlayerName} <#FFF>apon clicking the button.", new Tags { DoNotSave = true });
+                entry.ReloadButton = mod.AddToList("   - Reload", false, 0, $"Reloads the avatar for {rig.PlayerName} <#FFF>upon clicking the button.", new Tags { DoNotSave = true });
                 entry.ReloadButton.CurrentValueChanged += (sender, args) =>
                 {
+                    var player = rig.GetComponent<PlayerController>().assignedPlayer;
+
+                    if (RigManager.loadingPlayers.Contains(player.Data.GeneralData.PlayFabMasterId))
+                        return;
+                    
                     LoggerInstance.Msg($"Reloading avatar for {rig.PlayerName}");
-                    rig.Apply(CustomRig.RigState.Original);
+                    
+                    GameObject.Destroy(rig);
+                    Patches.loadedPlayers.Remove(player.Data.GeneralData.PlayFabMasterId);
+                    Patches.ApplyRig(player);
                 };
 
                 perPlayerSettings[rig] = entry;
