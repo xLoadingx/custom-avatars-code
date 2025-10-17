@@ -140,7 +140,15 @@ public class Patches
 
         private static bool IsEnabled()
         {
-            return Main.instance.sceneInitialized && (bool)(Main.instance.toggleLocal?.SavedValue ?? false);
+            if (!Main.instance.sceneInitialized) 
+                return false;
+
+            var localRig = Main.instance.localRig;
+            if (localRig == null)
+                return false;
+
+            return (bool)(Main.instance.toggleLocal?.SavedValue ?? false)
+                   && localRig.Config.swapOriginalMesh;
         }
     }
 }
