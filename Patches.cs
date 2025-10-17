@@ -23,7 +23,10 @@ public class Patches
             RemoteAvatarLoader.PlayerHasAvatar(player.Data.GeneralData.PlayFabMasterId, avatarDetails =>
             {
                 if (!avatarDetails.hasAvatar)
+                {
+                    MelonCoroutines.Start(CheckForMod(player));
                     return;
+                }
                 
                 var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
         
@@ -35,9 +38,40 @@ public class Patches
                 MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, (rig) =>
                 {
                     MelonCoroutines.Start(RigManager.FixHUDCamera(player.Data.GeneralData.PlayFabMasterId));
+                    MelonCoroutines.Start(CheckForMod(player));
                 }, true, avatarDetails.returnedSha));
             })
         );
+    }
+    
+    private static IEnumerator CheckForMod(Player player)
+    {
+        yield return new WaitForSeconds(1f);
+            
+        var photonPlayer = PhotonNetwork.CurrentRoom?.GetPlayer(player.Data.GeneralData.ActorNo);
+        var props = photonPlayer?.CustomProperties;
+                
+        if (props != null)
+        {
+            if (props.TryGetValue("CA_ModVersion", out var remoteVerObj) &&
+                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue("CA_ModVersion", out var localVerObj))
+            {
+                string remoteVer = remoteVerObj?.ToString() ?? "Unknown";
+                string localVer = localVerObj?.ToString() ?? "Unknown";
+
+                var tagIcon = Calls.LoadAssetFromStream<Sprite>(Main.instance, "CustomAvatars.AssetBundles.avatarthingies", "icon");
+                GameObject tag = new GameObject("CustomAvatarTag");
+
+                var renderer = tag.AddComponent<SpriteRenderer>();
+                renderer.sprite = tagIcon;
+                tag.transform.SetParent(player.Controller?.transform.GetChild(9));
+                tag.transform.localScale = Vector3.one * 0.04f;
+                tag.transform.localPosition = new Vector3(0.2301f, -0.1633f, 0);
+
+                if (player.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                    rig.ModVersion = remoteVer;
+            }
+        }
     }
     
     // Adds a rig to a newly spawned remote player
@@ -52,50 +86,6 @@ public class Patches
                 loadedPlayers.Add(masterId);
             
             ApplyRig(player);
-
-            MelonCoroutines.Start(CheckForMod(player));
-        }
-
-        private static IEnumerator CheckForMod(Player player)
-        {
-            yield return new WaitForSeconds(1f);
-            
-            var photonPlayer = PhotonNetwork.CurrentRoom?.GetPlayer(player.Data.GeneralData.ActorNo);
-            var props = photonPlayer?.CustomProperties;
-            bool isNewerVersion = false;
-                
-            if (props != null)
-            {
-                if (props.TryGetValue("CA_ModVersion", out var remoteVerObj) &&
-                    PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue("CA_ModVersion", out var localVerObj))
-                {
-                    string remoteVer = remoteVerObj?.ToString() ?? "Unknown";
-                    string localVer = localVerObj?.ToString() ?? "Unknown";
-
-                    var tag = Calls.Create.NewText(
-                        "[CustomAvatars]",
-                        0.5f,
-                        new Color(0, 0.8f, 0, 1),
-                        Vector3.zero,
-                        Quaternion.identity
-                    );
-
-                    tag.transform.SetParent(player.Controller.transform.GetChild(9));
-
-                    tag.name = "[CustomAvatars]";
-                    tag.transform.localRotation = Quaternion.Euler(0, 180, 0);
-                    tag.transform.localPosition = new Vector3(-0.148f, 0.1484f, 0f);
-
-                    if (Version.TryParse(remoteVer, out var rV) && Version.TryParse(localVer, out var lV))
-                    {
-                        if (rV > lV)
-                        {
-                            tag.GetComponent<TextMeshPro>().color = Color.cyan;
-                            isNewerVersion = true;
-                        }
-                    }
-                }
-            }
         }
     }
 

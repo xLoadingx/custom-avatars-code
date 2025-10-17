@@ -104,6 +104,7 @@ namespace CustomAvatars
         public ModSetting<bool> toggleOthers;
         public ModSetting<bool> toggleVisibleToOthers;
         public ModSetting<bool> toggleInMatch;
+        public ModSetting<bool> toggleIfNewerVersion;
         public ModSetting<bool> logAvatarStats;
         public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
@@ -125,8 +126,6 @@ namespace CustomAvatars
         }
 
         // TODO:
-        // Add base avatars you can choose from and customize
-        // Fix remote speaking
         // Add avatar settings (along with making Animator Controllers work with it)
         // Try and figure out if I can fiddle with RockCam to show more than one material
         
@@ -427,8 +426,6 @@ namespace CustomAvatars
                     MelonCoroutines.Stop(customRig.blinkCoroutine);
             }
             
-            
-            
             MelonCoroutines.Start(RigManager.LoadRigForPlayer(localPlayer, (rig) =>
             {
                 serverStatus = (Color.yellow, "Checking...");
@@ -592,42 +589,7 @@ namespace CustomAvatars
             if (reloadKeybind != null && Enum.TryParse((string)reloadKeybind.SavedValue, true, out KeyCode parsed))
             {
                 if (Input.GetKeyDown(parsed))
-                    ReloadAllAvatars();
-            }
-        }
-        
-        // Reload for other players might need some tweaking
-        public void ReloadAllAvatars()
-        {
-            Initialize();
-
-            var rigsSnapshot = RigManager.rigs.ToArray();
-
-            foreach (var kv in rigsSnapshot)
-            {
-                var id = kv.Key;
-                var rig = kv.Value;
-
-                if (rig == null || rig.IsLocal) continue;
-
-                var player = rig.GetComponent<PlayerController>()?.assignedPlayer ?? Calls.Players.GetAllPlayers()
-                    .ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == id);
-                if (player == null) continue;
-                    
-                if (!string.IsNullOrEmpty(rig.AvatarFilePath) && File.Exists(rig.AvatarFilePath))
-                    try { File.Delete(rig.AvatarFilePath); } catch {}
-
-                RigManager.ClearRig(rig);
-                Object.Destroy(rig);
-                    
-                var visuals = player.Controller.GetSubsystem<PlayerVisuals>();
-        
-                var customRig = player.Controller.gameObject.AddComponent<CustomRig>();
-                customRig.CaptureOriginal(player.Data.GeneralData.PlayFabMasterId, false, visuals.renderer);
-        
-                visuals.renderer.material = Main.poseGhostMaterial;
-                    
-                MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, null));
+                    Initialize();
             }
         }
 
@@ -695,7 +657,6 @@ namespace CustomAvatars
             bool showInMatch = (bool)toggleInMatch.Value;
             bool showLocal = (bool)toggleLocal.Value;
 
-            var localRig = Calls.Players.GetLocalPlayer()?.Controller?.GetComponent<CustomRig>();
             if (localRig == null)
                 return;
 
@@ -724,13 +685,14 @@ namespace CustomAvatars
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
             reloadKeybind = mod.AddToList("Reload Keybind", nameof(KeyCode.R), "The key that reloads your and other's avatars.", new Tags());
-            reloadToggle = mod.AddToList("Reload Avatar", false, 0, "Reloads all avatars on toggle.", new Tags { DoNotSave = true });
+            reloadToggle = mod.AddToList("Reload Avatar", false, 0, "Reloads your avatar on toggle.", new Tags { DoNotSave = true });
             
             mod.AddToList("<b><#114F11>- Avatar Visibility</color></b>", false, 0, "", new Tags { DoNotSave = true });
             toggleLocal = mod.AddToList("Toggle for Self", true, 0, "Toggles whether you see your custom avatar locally. This does not affect what other players see.", new Tags());
             toggleOthers = mod.AddToList("Toggle for Others", true, 0, "Toggles whether you can see other players' custom avatars.", new Tags());
             toggleVisibleToOthers = mod.AddToList("Let Others See My Avatar", true, 0, "Controls whether other players can see your custom avatar. This setting is networked.", new Tags());
             toggleInMatch = mod.AddToList("Toggle In Match", true, 0, "Toggles whether or not you and other players can see your custom avatar in a match. This setting is networked.", new Tags());
+            toggleIfNewerVersion = mod.AddToList("Load Higher Version Avatars", false, 0, "Toggles whether or not people that have a higher mod version than you will have their avatars loaded.", new Tags());
 
             mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
             logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
@@ -745,7 +707,7 @@ namespace CustomAvatars
             });
             uploadAvatar.SavedValueChanged += (sender, args) => UploadAvatar();
 
-            reloadToggle.CurrentValueChanged += (sender, args) => ReloadAllAvatars();
+            reloadToggle.CurrentValueChanged += (sender, args) => Initialize();
 
             toggleOthers.SavedValueChanged += (sender, args) =>
             {
@@ -817,6 +779,7 @@ namespace CustomAvatars
         public bool IsPreview;
         public string PlayerName;
         public string AvatarFilePath;
+        public string ModVersion;
 
         public AvatarDescriptorExport Config;
 

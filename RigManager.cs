@@ -453,8 +453,8 @@ public static class RigManager
         done?.Invoke();
     }
 
-    // Basically has to merge like 3 settings into one
-    // toggleOthers, perPlayerToggles, and canOthersSeeMyAvatar
+    // Basically has to merge like 4 settings into one
+    // toggleOthers, perPlayerToggles, and canOthersSeeMyAvatar, and toggleIfNewerVersion
     public static void ResolveRigState(Player player, CustomRig rig)
     {
         if (!(bool)Main.instance.toggleOthers.Value)
@@ -473,7 +473,10 @@ public static class RigManager
             if (!rigged)
             {
                 rig.Apply(CustomRig.RigState.Original);
-            } else if (Main.instance.perPlayerToggles.TryGetValue(rig, out var toggle))
+                return;
+            }
+            
+            if (Main.instance.perPlayerToggles.TryGetValue(rig, out var toggle))
             {
                 rig.Apply((bool)toggle.SavedValue
                     ? CustomRig.RigState.Rigged
@@ -482,6 +485,18 @@ public static class RigManager
             else
             {
                 rig.Apply(CustomRig.RigState.Rigged);
+            }
+
+            if (!(bool)Main.instance.toggleIfNewerVersion.Value)
+            {
+                if (Version.TryParse(rig.ModVersion, out var otherVersion) &&
+                    Version.TryParse(BuildInfo.Version, out var localVersion))
+                {
+                    if (otherVersion > localVersion)
+                    {
+                        rig.Apply(CustomRig.RigState.Original);
+                    }
+                }
             }
         }
         else
