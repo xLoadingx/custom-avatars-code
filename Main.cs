@@ -106,6 +106,7 @@ namespace CustomAvatars
         public ModSetting<bool> toggleVisibleToOthers;
         public ModSetting<bool> toggleInMatch;
         public ModSetting<bool> toggleIfNewerVersion;
+        public ModSetting<bool> toggleInRockCam;
         public ModSetting<bool> logAvatarStats;
         public ModSetting<bool> logOtherAvatarStats;
         public ModSetting<int> downloadLimitMB;
@@ -319,6 +320,7 @@ namespace CustomAvatars
                 cloneCustomRig.CaptureRig(newRig);
                 
                 cloneCustomRig.Config = customRig.Config;
+                cloneCustomRig.Config.swapOriginalMesh = true; // Temporarily
             
                 RigManager.ApplyRigToSMR(bodyDouble.transform.GetChild(1).GetChild(1), newRig, bodyDouble.transform.GetChild(1).GetComponent<Animator>(), customRig: cloneCustomRig);
                 RigManager.rigs["CloneBending Clone"] = cloneCustomRig;
@@ -556,21 +558,23 @@ namespace CustomAvatars
             if (rigParent && !rigParent.activeSelf)
                 rigParent.SetActive(true);
 
-            if (refreshAvatarButton && !refreshAvatarButton.activeSelf && currentScene == "Gym")
+            if (refreshAvatarButton && !refreshAvatarButton.activeSelf && currentScene == "Gym" && (bool)toggleLocal.SavedValue)
                 refreshAvatarButton.SetActive(true);
 
-            var dressingRoom = Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject();
-            if (currentScene == "Gym" && !dressingRoom.activeSelf)
+            if (currentScene == "Gym")
             {
-                dressingRoom.SetActive(true);
-                dressingRoom.transform.GetChild(0).gameObject.SetActive(false);
-                dressingRoom.transform.GetChild(1).gameObject.SetActive(false);
-                dressingRoom.transform.GetChild(2).GetChild(1).gameObject.SetActive(false);
-                dressingRoom.transform.position = new Vector3(-0.4274f, 0.093f, -3.1731f);
-                avatarOptimizationParent.transform.position = new Vector3(-1.3643f, 1.2603f, -3.4911f);
-                avatarOptimizationParent.SetActive(true);
+                var dressingRoom = Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject();
+                if (!dressingRoom.activeSelf)
+                {
+                    dressingRoom.SetActive(true);
+                    dressingRoom.transform.GetChild(0).gameObject.SetActive(false);
+                    dressingRoom.transform.GetChild(1).gameObject.SetActive(false);
+                    dressingRoom.transform.GetChild(2).GetChild(1).gameObject.SetActive(false);
+                    dressingRoom.transform.position = new Vector3(-0.4274f, 0.093f, -3.1731f);
+                    avatarOptimizationParent.transform.position = new Vector3(-1.3643f, 1.2603f, -3.4911f);
+                    avatarOptimizationParent.SetActive(true);
+                }
             }
-            
             
             if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
             {
@@ -610,7 +614,7 @@ namespace CustomAvatars
 
                                 bool canSeeMe = RigManager.CanPlayerSeeMe(player);
 
-                                if (rumblePlayer?.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                                if (rumblePlayer?.Controller?.GetComponent<CustomRig>() ?? false)
                                 {
                                     var tagObj = rumblePlayer.Controller.transform.GetChild(9).Find("CustomAvatarTag");
 
@@ -750,6 +754,7 @@ namespace CustomAvatars
             toggleVisibleToOthers = mod.AddToList("Let Others See My Avatar", true, 0, "Controls whether other players can see your custom avatar. This setting is networked.", new Tags());
             toggleInMatch = mod.AddToList("Toggle In Match", true, 0, "Toggles whether or not you and other players can see your custom avatar in a match. This setting is networked.", new Tags());
             toggleIfNewerVersion = mod.AddToList("Load Higher Version Avatars", false, 0, "Toggles whether or not people that have a higher mod version than you will have their avatars loaded.", new Tags());
+            toggleInRockCam = mod.AddToList("Toggle in Rock Cam", true, 0, "Toggles whether or not you can see your custom avatar in Rock Cam or not.\nThis setting takes effect when your avatar is reloaded.", new Tags());
 
             mod.AddToList("<b><#FFED29>- Statistics</color></b>", false, 0, "", new Tags { DoNotSave = true });
             logAvatarStats = mod.AddToList("Log Avatar Statistics (self)", true, 0, "If enabled, logs mesh info like vertex count, material count, etc. when the local player's avatar is loaded.", new Tags());
@@ -1086,7 +1091,7 @@ namespace CustomAvatars
                         if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
                         break;
                     case RigState.Rigged:
-                        if (Config.swapOriginalMesh)
+                        if (Config.swapOriginalMesh && (bool)Main.instance.toggleInRockCam.SavedValue)
                         {
                             MeshRenderer.materials = RigMaterials;
                             MeshRenderer.bones = RigBones;
@@ -1096,6 +1101,22 @@ namespace CustomAvatars
                                 playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
                         }
                         Root.SetActive(true);
+                        
+                        if (!(bool)Main.instance.toggleInRockCam.SavedValue)
+                        {
+                            Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
+                            mat.SetFloat("_ZWrite", 0f);
+                            mat.renderQueue = 0;
+                            MeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
+                            MeshRenderer.material = mat;
+                            foreach (var renderer in Root.GetComponentsInChildren<Renderer>())
+                                renderer.gameObject.layer = 23;
+                        }
+                        else
+                        {
+                            MeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                        }
 
                         foreach (var bone in RigBones)
                             bone.gameObject.SetActive(true);
@@ -1127,12 +1148,16 @@ namespace CustomAvatars
         private IEnumerator ApplyDefaultBlendshapes()
         {
             yield return null;
-            if (MeshRenderer == null || MeshRenderer.sharedMesh == null) yield break;
+
+            SkinnedMeshRenderer renderer;
+            renderer = Config.swapOriginalMesh ? MeshRenderer : Root.GetComponentInChildren<SkinnedMeshRenderer>();
+            
+            if (renderer == null || MeshRenderer.sharedMesh == null) yield break;
 
             foreach (var blendshape in Config.defaultBlendshapes)
             {
                 if (blendshape.index >= 0 && blendshape.index < MeshRenderer.sharedMesh.blendShapeCount)
-                    MeshRenderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
+                    renderer.SetBlendShapeWeight(blendshape.index, blendshape.weight);
             }
         }
 
