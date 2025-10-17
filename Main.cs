@@ -178,6 +178,10 @@ namespace CustomAvatars
             Directory.CreateDirectory(filePath);
 
             ApplyAvatars();
+            
+            Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
+            Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+                .cullingMask |= (1 << 2);
 
             // Making objects in code is fun looking
             if (currentScene == "Gym" && !sceneInitialized)
@@ -472,7 +476,13 @@ namespace CustomAvatars
                     // CloneBending Clone
                     CheckClonebending(customRig, currentRig, log);
                     
-                    MelonCoroutines.Start(RigManager.FixHUDCamera(localPlayer.Data.GeneralData.PlayFabMasterId, () => { previewController.transform.GetChild(0).gameObject.layer = 0; }));
+                    MelonCoroutines.Start(RigManager.FixHUDCamera(localPlayer.Data.GeneralData.PlayFabMasterId, () =>
+                    {
+                        if (!(bool)toggleInRockCam.SavedValue)
+                            previewController.transform.GetChild(0).gameObject.layer = 2;
+                        else
+                            previewController.transform.GetChild(0).gameObject.layer = 23;
+                    }));
                 }
             }, log));
 
@@ -499,7 +509,6 @@ namespace CustomAvatars
             newRig.transform.SetParent(rigParent.transform, true);
             
             var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
-            previewController.transform.GetChild(0).gameObject.layer = LayerMask.NameToLayer("PlayerController");
             var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
             if (previewCustomRig != null)
             {
@@ -1101,21 +1110,28 @@ namespace CustomAvatars
                                 playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
                         }
                         Root.SetActive(true);
-                        
-                        if (!(bool)Main.instance.toggleInRockCam.SavedValue)
-                        {
-                            Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                            mat.SetFloat("_ZWrite", 0f);
-                            mat.renderQueue = 0;
-                            MeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
-                            MeshRenderer.material = mat;
-                            foreach (var renderer in Root.GetComponentsInChildren<Renderer>())
-                                renderer.gameObject.layer = 23;
-                        }
-                        else
+                        if (IsLocal)
                         {
-                            MeshRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+                            if (!(bool)Main.instance.toggleInRockCam.SavedValue)
+                            {
+                                MeshRenderer.shadowCastingMode = ShadowCastingMode.Off;
+                                MeshRenderer.gameObject.layer = 2;
+                                Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask &= ~(1 << 2);
+                                Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+                                    .cullingMask &= ~(1 << 2);
+                            
+                                foreach (var renderer in Root.GetComponentsInChildren<Renderer>())
+                                    renderer.gameObject.layer = 23;
+                            }
+                            else
+                            {
+                                MeshRenderer.shadowCastingMode = ShadowCastingMode.On;
+                                MeshRenderer.gameObject.layer = 23;
+                                Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
+                                Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+                                    .cullingMask |= (1 << 2);
+                            }
                         }
 
                         foreach (var bone in RigBones)

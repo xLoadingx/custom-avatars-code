@@ -780,23 +780,6 @@ public static class RigManager
             if (!customRig.Config.swapOriginalMesh)
                 playerRenderer.material = customRig.OriginalMaterial;
 
-            if (!(bool)Main.instance.toggleInRockCam.SavedValue)
-            {
-                Material mat = new Material(Shader.Find("Universal Render Pipeline/Lit"));
-                mat.SetFloat("_ZWrite", 0f);
-                mat.renderQueue = 0;
-                playerRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-
-                playerRenderer.material = mat;
-
-                foreach (var meshRenderer in rig.GetComponentsInChildren<Renderer>())
-                    meshRenderer.gameObject.layer = 23;
-            }
-            else
-            {
-                playerRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
-            }
-
             if (customRig != null)
             {
                 if (playerRenderer.material != null)
