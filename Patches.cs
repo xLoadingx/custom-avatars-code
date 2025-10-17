@@ -5,7 +5,6 @@ using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
-using Il2CppTMPro;
 using MelonLoader;
 using RumbleModdingAPI;
 
@@ -59,15 +58,23 @@ public class Patches
                 string remoteVer = remoteVerObj?.ToString() ?? "Unknown";
                 string localVer = localVerObj?.ToString() ?? "Unknown";
 
-                var tagIcon = Calls.LoadAssetFromStream<Sprite>(Main.instance, "CustomAvatars.AssetBundles.avatarthingies", "icon");
-                GameObject tag = new GameObject("CustomAvatarTag");
+                if (Main.instance.tagObject == null)
+                {
+                    var tagIcon = Calls.LoadAssetFromStream<Sprite>(Main.instance, "CustomAvatars.AssetBundles.avatarthingies", "icon");
+                    GameObject tag = new GameObject("CustomAvatarTag");
+                    
+                    var renderer = tag.AddComponent<SpriteRenderer>();
+                    renderer.sprite = tagIcon;
+                    
+                    GameObject.DontDestroyOnLoad(tag);
 
-                var renderer = tag.AddComponent<SpriteRenderer>();
-                renderer.sprite = tagIcon;
-                tag.transform.SetParent(player.Controller?.transform.GetChild(9));
-                tag.transform.localScale = Vector3.one * 0.04f;
-                tag.transform.localPosition = new Vector3(0.2301f, -0.1633f, 0);
+                    Main.instance.tagObject = tag;
+                }
 
+                var tagClone = GameObject.Instantiate(Main.instance.tagObject, player.Controller?.transform.GetChild(9));
+                tagClone.transform.localScale = Vector3.one * 0.04f;
+                tagClone.transform.localPosition = new Vector3(0.2301f, -0.1633f, 0);
+                
                 if (player.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
                     rig.ModVersion = remoteVer;
             }

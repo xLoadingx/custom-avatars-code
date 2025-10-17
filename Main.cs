@@ -95,6 +95,7 @@ namespace CustomAvatars
         public GameObject uploadAvatarButton;
         public GameObject uploadProgressBar;
         public TextMeshPro serverStatusText;
+        public GameObject tagObject;
         public (Color color, string status) serverStatus = (Color.cyan, "Up To Date");
 
         public Mod mod = new();
@@ -112,7 +113,7 @@ namespace CustomAvatars
         public ModSetting<bool> uploadAvatar;
 
         public ModSetting<bool> perPlayerHeader;
-        public Dictionary<CustomRig, ModSetting<bool>> perPlayerToggles = new();
+        public Dictionary<CustomRig, PlayerEntry> perPlayerSettings = new();
         private Dictionary<int, Hashtable> lastProps = new();
 
         public static Material poseGhostMaterial;
@@ -460,66 +461,11 @@ namespace CustomAvatars
                 
                 if (currentScene == "Gym" && rig != null)
                 {
-                    // Preview Controller in Dressing Room
                     var previewController =
                         Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
-
-                    GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
-                        Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
-
-                    newRig.name = "RIG - Preview Controller (Dressing Room)";
-                    newRig.transform.SetParent(rigParent.transform, true);
                     
-                    var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
-                    previewController.transform.GetChild(0).gameObject.layer = LayerMask.NameToLayer("PlayerController");
-                    var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
-                    if (previewCustomRig != null)
-                    {
-                        if (previewCustomRig.blinkCoroutine != null)
-                            MelonCoroutines.Stop(previewCustomRig.blinkCoroutine);
-                    }
-                    else
-                    {
-                        previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
-                        previewCustomRig.IsPreview = true;
-                        previewCustomRig.PlayerName = "Preview Controller (Dressing Room)";
-                        previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr, log);
-                    }
-
-                    previewCustomRig.CaptureRig(newRig);
-                    
-                    previewCustomRig.Config = customRig.Config;
-                
-                    RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, previewController.GetComponent<Animator>(), customRig: previewCustomRig);
-                    RigManager.rigs["Preview Controller (Dressing Room)"] = previewCustomRig;
-                    
-                    if (!(bool)toggleLocal.SavedValue)
-                        previewCustomRig.Apply(CustomRig.RigState.Original);
-                    else
-                        previewCustomRig.Apply(CustomRig.RigState.Rigged);
-
-                    // LMAO I have no idea how I came up with this
-                    // but it works somehow so im not touching it
-                    var runtimeAnimator = rig.GetComponent<Animator>();
-                    var previewRigAnimator = newRig.GetComponent<Animator>();
-
-                    if (runtimeAnimator != null && previewRigAnimator != null)
-                    {
-                        foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
-                        {
-                            if (bone == HumanBodyBones.LastBone) continue;
-
-                            Transform playerBone = runtimeAnimator.GetBoneTransform(bone);
-                            Transform rigBone = previewRigAnimator.GetBoneTransform(bone);
-
-                            if (playerBone != null && rigBone != null)
-                            {
-                                rigBone.localRotation = playerBone.localRotation;
-                            }
-                        }
-                    }
-
                     currentRig = rig;
+                    LoadPreviewController();
                     
                     // CloneBending Clone
                     CheckClonebending(customRig, currentRig, log);
@@ -538,8 +484,71 @@ namespace CustomAvatars
             }
         }
 
-        // Esnures rigParent stays active
+        public void LoadPreviewController()
+        {
+            // Preview Controller in Dressing Room
+            var previewController =
+                Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
+
+            GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
+                Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
+
+            newRig.name = "RIG - Preview Controller (Dressing Room)";
+            newRig.transform.SetParent(rigParent.transform, true);
+            
+            var smr = previewController.transform.GetChild(0).GetComponent<SkinnedMeshRenderer>();
+            previewController.transform.GetChild(0).gameObject.layer = LayerMask.NameToLayer("PlayerController");
+            var previewCustomRig = previewController.transform.parent.GetComponent<CustomRig>();
+            if (previewCustomRig != null)
+            {
+                if (previewCustomRig.blinkCoroutine != null)
+                    MelonCoroutines.Stop(previewCustomRig.blinkCoroutine);
+            }
+            else
+            {
+                previewCustomRig = previewController.transform.parent.gameObject.AddComponent<CustomRig>();
+                previewCustomRig.IsPreview = true;
+                previewCustomRig.PlayerName = "Preview Controller (Dressing Room)";
+                previewCustomRig.CaptureOriginal("Preview Controller (Dressing Room)", false, smr, false);
+            }
+
+            previewCustomRig.CaptureRig(newRig);
+            
+            previewCustomRig.Config = localRig.Config;
+        
+            RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, previewController.GetComponent<Animator>(), customRig: previewCustomRig);
+            RigManager.rigs["Preview Controller (Dressing Room)"] = previewCustomRig;
+            
+            if (!(bool)toggleLocal.SavedValue)
+                previewCustomRig.Apply(CustomRig.RigState.Original);
+            else
+                previewCustomRig.Apply(CustomRig.RigState.Rigged);
+
+            // LMAO I have no idea how I came up with this
+            // but it works somehow so im not touching it
+            var runtimeAnimator = currentRig.GetComponent<Animator>();
+            var previewRigAnimator = newRig.GetComponent<Animator>();
+
+            if (runtimeAnimator != null && previewRigAnimator != null)
+            {
+                foreach (HumanBodyBones bone in Enum.GetValues(typeof(HumanBodyBones)))
+                {
+                    if (bone == HumanBodyBones.LastBone) continue;
+
+                    Transform playerBone = runtimeAnimator.GetBoneTransform(bone);
+                    Transform rigBone = previewRigAnimator.GetBoneTransform(bone);
+
+                    if (playerBone != null && rigBone != null)
+                    {
+                        rigBone.localRotation = playerBone.localRotation;
+                    }
+                }
+            }
+        }
+
+        // Ensures rigParent stays active
         // Mostly because FlatLand
+        // Also handles CustomProperties
         public override void OnFixedUpdate()
         {
             if (currentScene == "Loader") return;
@@ -549,6 +558,18 @@ namespace CustomAvatars
 
             if (refreshAvatarButton && !refreshAvatarButton.activeSelf && currentScene == "Gym")
                 refreshAvatarButton.SetActive(true);
+
+            var dressingRoom = Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject();
+            if (currentScene == "Gym" && !dressingRoom.activeSelf)
+            {
+                dressingRoom.SetActive(true);
+                dressingRoom.transform.GetChild(0).gameObject.SetActive(false);
+                dressingRoom.transform.GetChild(1).gameObject.SetActive(false);
+                dressingRoom.transform.GetChild(2).GetChild(1).gameObject.SetActive(false);
+                dressingRoom.transform.position = new Vector3(-0.4274f, 0.093f, -3.1731f);
+                avatarOptimizationParent.transform.position = new Vector3(-1.3643f, 1.2603f, -3.4911f);
+                avatarOptimizationParent.SetActive(true);
+            }
             
             // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
             if (currentScene != "Gym" && (bool)(toggleOthers?.SavedValue ?? false))
@@ -559,7 +580,10 @@ namespace CustomAvatars
                         continue;
 
                     if (!lastProps.TryGetValue(player.ActorNumber, out var oldProps))
+                    {
                         oldProps = new Hashtable();
+                        lastProps[player.ActorNumber] = oldProps;
+                    }
                     
                     var props = player.CustomProperties;
                     if (props != null)
@@ -600,18 +624,26 @@ namespace CustomAvatars
             {
                 if (string.IsNullOrEmpty(rig.PlayerName)) return;
 
-                if (perPlayerToggles.Count == 0)
-                    perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Toggles", false, 0, "", new Tags { DoNotSave = true });
+                if (perPlayerSettings.Count == 0)
+                    perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Settings", false, 0, "", new Tags { DoNotSave = true });
 
-                var setting = mod.AddToList($"{rig.PlayerName} <#FFFFFF>({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
-
-                setting.SavedValueChanged += (sender, args) =>
+                var entry = new PlayerEntry();
+                
+                entry.Toggle = mod.AddToList($"{rig.PlayerName} <#FFF>({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
+                entry.Toggle.SavedValueChanged += (sender, args) =>
                 {
                     if (toggleOthers.GetValue())
-                        rig.Apply(setting.GetValue() ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                        rig.Apply(entry.Toggle.GetValue() ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                 };
 
-                perPlayerToggles[rig] = setting;
+                entry.ReloadButton = mod.AddToList("   - Reload", false, 0, $"Reloads the avatar for {rig.PlayerName} <#FFF>apon clicking the button.", new Tags { DoNotSave = true });
+                entry.ReloadButton.CurrentValueChanged += (sender, args) =>
+                {
+                    LoggerInstance.Msg($"Reloading avatar for {rig.PlayerName}");
+                    rig.Apply(CustomRig.RigState.Original);
+                };
+
+                perPlayerSettings[rig] = entry;
 
                 mod.GetFromFile();
             }
@@ -624,13 +656,15 @@ namespace CustomAvatars
         // Removes per-player toggle (cleanup if player leaves)
         public void RemoveRigFromList(CustomRig rig)
         {
-            if (perPlayerToggles.TryGetValue(rig, out var setting))
+            if (perPlayerSettings.TryGetValue(rig, out var settings))
             {
-                mod.Settings.Remove(setting);
-                perPlayerToggles.Remove(rig);
+                foreach (var setting in settings.GetAllSettings())
+                    mod.Settings.Remove(setting);
+                
+                perPlayerSettings.Remove(rig);
             }
             
-            if (perPlayerHeader != null && perPlayerToggles.Count == 0)
+            if (perPlayerHeader != null && perPlayerSettings.Count == 0)
             {
                 mod.Settings.Remove(perPlayerHeader);
                 perPlayerHeader = null;
@@ -1048,7 +1082,7 @@ namespace CustomAvatars
                             }
                         }
 
-                        if (!Main.instance.perPlayerToggles.ContainsKey(this) && !IsLocal && !IsPreview)
+                        if (!Main.instance.perPlayerSettings.ContainsKey(this) && !IsLocal && !IsPreview)
                             Main.instance.AddRigToList(this);
                         
                         break;
@@ -1079,7 +1113,7 @@ namespace CustomAvatars
 
                 float blinkDuration = Config.eyeSettings.blinkSpeed;
 
-                switch ((AvatarDescriptorExport.BlinkType)Config.eyeSettings.blinkType)
+                switch (Config.eyeSettings.blinkType)
                 {
                     case AvatarDescriptorExport.BlinkType.Single:
                         int singleIdx = Config.eyeSettings.blinkBlendshape;
@@ -1145,17 +1179,34 @@ namespace CustomAvatars
 
         public void OnDestroy()
         {
-            if (OriginalMesh) Destroy(OriginalMesh);
-            if (OriginalMaterial) Destroy(OriginalMaterial);
+            Apply(RigState.Original);
+            
             if (RigMesh) Destroy(RigMesh);
+            if (Root) Destroy(Root);
 
             if (RigMaterials != null)
             {
                 foreach (var mat in RigMaterials)
                     Destroy(mat);
             }
-            
-            if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
+
+            if (blinkCoroutine != null)
+            {
+                MelonCoroutines.Stop(blinkCoroutine); 
+                blinkCoroutine = null;
+            }
+        }
+    }
+
+    public class PlayerEntry
+    {
+        public ModSetting<bool> Toggle;
+        public ModSetting<bool> ReloadButton;
+
+        public IEnumerable<ModSetting> GetAllSettings()
+        {
+            if (Toggle != null) yield return Toggle;
+            if (ReloadButton != null) yield return ReloadButton;
         }
     }
 }

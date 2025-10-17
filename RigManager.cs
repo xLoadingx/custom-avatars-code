@@ -81,7 +81,7 @@ public static class RigManager
                     {
                         totalTextures++;
 
-                        if (tex.width >= 4096 || tex.height >= 4096)
+                        if (tex.width >= 8192 || tex.height >= 8192)
                         {
                             hasHugeTextures = true;
                             Warning($"[Avatar Optimization] Huge texture on '{mat.name}' ({texName}): {tex.width}x{tex.height}");
@@ -165,7 +165,7 @@ public static class RigManager
     {
         rig.Apply(CustomRig.RigState.Original);
             
-        if (Main.instance.perPlayerToggles.ContainsKey(rig))
+        if (Main.instance.perPlayerSettings.ContainsKey(rig))
             Main.instance.RemoveRigFromList(rig);
             
         GameObject.Destroy(rig.Root);
@@ -316,6 +316,9 @@ public static class RigManager
                 player.Controller.GetSubsystem<PlayerHandPresence>().enabled = true;
                 yield break;
             }
+
+            if (!isLocal)
+                yield return new WaitForSeconds(2f);
             
             GameObject rigPrefab = rigBundle?.LoadAsset<GameObject>("Rig");
             if (rigPrefab == null)
@@ -441,7 +444,7 @@ public static class RigManager
         var camObj = GameObject.Find($"RumbleHud_{masterID}_portraitCamera");
         var cam = camObj?.GetComponent<Camera>();
         if (cam != null)
-            cam.nearClipPlane = 0.01f;
+            cam.nearClipPlane = 0.0001f;
 
         // Only works if RumbleHud actually exists, so thats neat.
         var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
@@ -476,9 +479,9 @@ public static class RigManager
                 return;
             }
             
-            if (Main.instance.perPlayerToggles.TryGetValue(rig, out var toggle))
+            if (Main.instance.perPlayerSettings.TryGetValue(rig, out var settings))
             {
-                rig.Apply((bool)toggle.SavedValue
+                rig.Apply((bool)settings.Toggle.SavedValue
                     ? CustomRig.RigState.Rigged
                     : CustomRig.RigState.Original);
             }
