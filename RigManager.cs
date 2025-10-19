@@ -2,7 +2,8 @@ using System.Collections;
 using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppPhoton.Pun;
-using Il2CppRootMotion.FinalIK;
+using Il2CppRUMBLE.MoveSystem;
+using Il2CppRUMBLE.MoveSystem.Testing;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Scaling;
 using Il2CppRUMBLE.Players.Subsystems;
@@ -12,6 +13,8 @@ using MelonLoader.Utils;
 using Newtonsoft.Json;
 using RumbleModdingAPI;
 using UnityEngine;
+using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
+using Stack = System.Collections.Stack;
 
 namespace CustomAvatars;
 
@@ -21,6 +24,13 @@ public static class RigManager
     public static readonly Dictionary<string, CustomRig> rigs = new();
     public static readonly HashSet<string> loadingPlayers = new();
     public static int activeLoads;
+
+    public enum VisibilityResult
+    {
+        Visible,
+        Hidden,
+        Unknown // no visibility key found, probably not using the mod
+    }
 
     public static void Initialize(Main mainInstance)
     {
@@ -165,8 +175,8 @@ public static class RigManager
     {
         rig.Apply(CustomRig.RigState.Original);
             
-        if (Main.instance.perPlayerSettings.ContainsKey(rig))
-            Main.instance.RemoveRigFromList(rig);
+        if (Main.instance.perPlayerSettings.ContainsKey(rig.PlayerId))
+            Main.instance.RemovePlayerFromList(rig.Player);
             
         GameObject.Destroy(rig.Root);
     }
@@ -382,7 +392,7 @@ public static class RigManager
                         JsonConvert.DeserializeObject<AvatarDescriptorExport>(jsonAsset.text);
                     customRig.Config = config;
 
-                    if (!(bool)Main.instance.toggleInRockCam.SavedValue)
+                    if (!(bool)Main.instance.toggleInRockCam.SavedValue && isLocal)
                         customRig.Config.swapOriginalMesh = false;
                 }
                 catch (Exception ex)
@@ -425,11 +435,8 @@ public static class RigManager
 
             if (!isLocal)
             {
-                if (player.Controller.TryGetComponent<CustomRig>(out var rig))
-                {
-                    Main.instance.AddRigToList(customRig);
-                    ResolveRigState(player, rig);
-                }
+                Main.instance.AddPlayerToList(player);
+                ResolveRigState(player, customRig);
             }
 
             onLoaded?.Invoke(rigInstance);
@@ -465,21 +472,22 @@ public static class RigManager
     {
         var state = CustomRig.RigState.Rigged;
 
+        // If toggle others is off, always turn other avatars off
         if (!(bool)Main.instance.toggleOthers.Value)
             state = CustomRig.RigState.Original;
         else
         {
             var view = player?.Controller?.GetComponent<PhotonView>();
             var props = view?.Controller?.CustomProperties;
-
-            if (props == null || !props.TryGetValue("CA_Avatar", out var val) || !val.Unbox<bool>())
+            
+            if (props == null || !props.TryGetValue("CA_Avatar", out var val) || !val.Unbox<bool>()) // See if their `show for others` is on/off, priority
                 state = CustomRig.RigState.Original;
-            else if (Main.instance.perPlayerSettings.TryGetValue(rig, out var settings) && !(bool)settings.Toggle.SavedValue)
+            else if (Main.instance.perPlayerSettings.TryGetValue(rig.PlayerId, out var settings) && !(bool)settings.Toggle.SavedValue) // if it is, but their per-player is off
                 state = CustomRig.RigState.Original;
             else if (!(bool)Main.instance.toggleIfNewerVersion.Value &&
                      Version.TryParse(rig.ModVersion, out var otherVersion) &&
                      Version.TryParse(BuildInfo.Version, out var localVersion) &&
-                     otherVersion > localVersion)
+                     otherVersion > localVersion) // If `toggle newer version` is off, and it's able to parse both, and theirs is higher
                 state = CustomRig.RigState.Original;
         }
 
@@ -488,50 +496,46 @@ public static class RigManager
         return state;
     }
     
+    // Sets your custom properties for CanSeeMe to work
     public static void UpdateVisibilityProps()
     {
         if (!PhotonNetwork.InRoom)
             return;
-        
-        var visMap = new Il2CppExitGames.Client.Photon.Hashtable();
 
         foreach (var player in PhotonNetwork.PlayerList)
         {
-            if (player == PhotonNetwork.LocalPlayer)
+            if (player == PhotonNetwork.LocalPlayer || player == null)
+                continue;
+
+            if (!player.CustomProperties?.ContainsKey("CA_ModVersion") ?? true)
                 continue;
 
             Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
             if (rumblePlayer?.Controller == null)
                 continue;
 
-            if (rumblePlayer.Controller.TryGetComponent<CustomRig>(out var rig))
-            {
-                CustomRig.RigState state = ResolveRigState(rumblePlayer, rig);
+            var state = rumblePlayer.Controller.TryGetComponent<CustomRig>(out var rig) 
+                ? ResolveRigState(rumblePlayer, rig, false) 
+                : CustomRig.RigState.Original;
 
-                visMap[rumblePlayer.Data.GeneralData.PlayFabMasterId] = state == CustomRig.RigState.Rigged;
-            }
+            var props = new Hashtable();
+            props[$"{rumblePlayer.Data.GeneralData.PlayFabMasterId}_CAVisibility"] = state == CustomRig.RigState.Rigged;
+            PhotonNetwork.LocalPlayer.SetCustomProperties(props);
         }
-
-        var props = new Il2CppExitGames.Client.Photon.Hashtable
-        {
-            ["CA_VisibilityMap"] = visMap
-        };
-        PhotonNetwork.LocalPlayer.SetCustomProperties(props);
     }
 
-    public static bool CanPlayerSeeMe(Il2CppPhoton.Realtime.Player viewer)
+    // Checks if a specified player is able to see your avatar
+    // with their custom properties
+    public static VisibilityResult CanPlayerSeeMe(Il2CppPhoton.Realtime.Player viewer)
     {
-        if (viewer.CustomProperties == null)
-            return false;
-
-        if (viewer.CustomProperties.TryGetValue("CA_VisibilityMap", out var val) && val is Il2CppExitGames.Client.Photon.Hashtable map)
-        {
-            string masterId = Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId;
-            if (map.ContainsKey(masterId))
-                return map[masterId].Unbox<bool>();
-        }
-
-        return false;
+        if (viewer.CustomProperties == null || Main.instance.localRig == null)
+            return VisibilityResult.Unknown;
+        
+        string masterId = Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId;
+        if (!viewer.CustomProperties.TryGetValue($"{masterId}_CAVisibility", out var val))
+            return VisibilityResult.Unknown;
+        
+        return val.Unbox<bool>() ? VisibilityResult.Visible : VisibilityResult.Hidden;
     }
 
     // Wires a rig up to the player's renderer + animator
@@ -851,7 +855,7 @@ public class AvatarDescriptorExport
     public EyeSettings eyeSettings = new EyeSettings();
 }
 
-[System.Serializable]
+[Serializable]
 public class EyeSettings
 {
     public AvatarDescriptorExport.BlinkType blinkType;

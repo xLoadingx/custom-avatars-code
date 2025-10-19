@@ -37,8 +37,8 @@ public class Patches
                 MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, (rig) =>
                 {
                     MelonCoroutines.Start(RigManager.FixHUDCamera(player.Data.GeneralData.PlayFabMasterId));
-                    MelonCoroutines.Start(CheckForMod(player));
                     RigManager.UpdateVisibilityProps();
+                    MelonCoroutines.Start(CheckForMod(player));
                 }, true, avatarDetails.returnedSha));
             })
         );
@@ -54,10 +54,9 @@ public class Patches
         if (props != null)
         {
             if (props.TryGetValue("CA_ModVersion", out var remoteVerObj) &&
-                PhotonNetwork.LocalPlayer.CustomProperties.TryGetValue("CA_ModVersion", out var localVerObj))
+                PhotonNetwork.LocalPlayer.CustomProperties.ContainsKey("CA_ModVersion"))
             {
                 string remoteVer = remoteVerObj?.ToString() ?? "Unknown";
-                string localVer = localVerObj?.ToString() ?? "Unknown";
 
                 if (Main.instance.tagObject == null)
                 {
@@ -68,11 +67,13 @@ public class Patches
                     renderer.sprite = tagIcon;
                     
                     GameObject.DontDestroyOnLoad(tag);
+                    tag.SetActive(false);
 
                     Main.instance.tagObject = tag;
                 }
 
                 var tagClone = GameObject.Instantiate(Main.instance.tagObject, player.Controller?.transform.GetChild(9));
+                tagClone.SetActive(true);
                 tagClone.name = "CustomAvatarTag";
                 tagClone.transform.localScale = Vector3.one * 0.04f;
                 tagClone.transform.localPosition = new Vector3(0.2301f, -0.1633f, 0);
@@ -116,7 +117,7 @@ public class Patches
                 if (rigObj != null)
                 {
                     GameObject.Destroy(rigObj.Root);
-                    Main.instance.RemoveRigFromList(rigObj);
+                    Main.instance.RemovePlayerFromList(assigned);
                 }
 
                 RigManager.rigs.Remove(leftId);

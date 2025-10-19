@@ -1,6 +1,5 @@
 ﻿using System.Collections;
 using System.Reflection;
-using HarmonyLib;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Interactions.InteractionBase;
@@ -20,6 +19,7 @@ using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 using Main = CustomAvatars.Main;
 using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
+using VisibilityResult = CustomAvatars.RigManager.VisibilityResult;
 
 [assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.3.0", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
@@ -60,24 +60,6 @@ namespace CustomAvatars
         }
     }
 
-    public static class TransformExtensions
-    {
-        public static Transform FindDeep(this Transform parent, string name)
-        {
-            for (int i = 0; i < parent.childCount; i++)
-            {
-                if (parent.GetChild(i).name == name)
-                    return parent.GetChild(i);
-
-                Transform found = parent.GetChild(i).FindDeep(name);
-                if (found != null)
-                    return found;
-            }
-
-            return null;
-        }
-    }
-
     [RegisterTypeInIl2Cpp]
     public class CustomRigBone : MonoBehaviour { }
 
@@ -115,7 +97,7 @@ namespace CustomAvatars
         public ModSetting<bool> uploadAvatar;
 
         public ModSetting<bool> perPlayerHeader;
-        public Dictionary<CustomRig, PlayerEntry> perPlayerSettings = new();
+        public Dictionary<string, PlayerEntry> perPlayerSettings = new();
         private Dictionary<int, Hashtable> lastProps = new();
 
         public static Material poseGhostMaterial;
@@ -179,10 +161,6 @@ namespace CustomAvatars
             Directory.CreateDirectory(filePath);
 
             ApplyAvatars();
-            
-            Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
-            Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
-                .cullingMask |= (1 << 2);
 
             // Making objects in code is fun looking
             if (currentScene == "Gym" && !sceneInitialized)
@@ -325,7 +303,8 @@ namespace CustomAvatars
                 cloneCustomRig.CaptureRig(newRig);
                 
                 cloneCustomRig.Config = customRig.Config;
-                cloneCustomRig.Config.swapOriginalMesh = true; // Temporarily
+                if (!cloneCustomRig.Config.swapOriginalMesh)
+                    rig.transform.SetParent(bodyDouble.transform, true);
             
                 RigManager.ApplyRigToSMR(bodyDouble.transform.GetChild(1).GetChild(1), newRig, bodyDouble.transform.GetChild(1).GetComponent<Animator>(), customRig: cloneCustomRig);
                 RigManager.rigs["CloneBending Clone"] = cloneCustomRig;
@@ -406,9 +385,14 @@ namespace CustomAvatars
 
         // Applies local & preview rigs, also SHA-checks against GitHub
         // Might need to make the warning a bit more visible
-        public void ApplyAvatars(bool log = true)
+        public void ApplyAvatars(bool log = true, bool clearAll = true)
         {
-            RigManager.ClearRigs();
+            if (clearAll)
+                RigManager.ClearRigs();
+            
+            Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
+            Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+                .cullingMask |= (1 << 2);
             
             var localPlayer = Calls.Players.GetLocalPlayer();
 
@@ -593,47 +577,35 @@ namespace CustomAvatars
                     if (player.CustomProperties == null || player == PhotonNetwork.LocalPlayer) 
                         continue;
 
-                    if (!lastProps.TryGetValue(player.ActorNumber, out var oldProps))
-                    {
-                        oldProps = new Hashtable();
-                        lastProps[player.ActorNumber] = oldProps;
-                    }
-
                     Player rumblePlayer = Calls.Players.GetPlayerByActorNo(player.ActorNumber);
                     
                     var props = player.CustomProperties;
                     if (props != null)
                     {
                         // Checks if other players want to be seen, for the canOthersSeeMyAvatar toggle.
-                        if (props.TryGetValue("CA_Avatar", out var avatarVal))
+                        if (props.ContainsKey("CA_Avatar") && localRig != null)
                         {
-                            if (!oldProps.TryGetValue("CA_Avatar", out var oldAvatarVal) || !Equals(oldAvatarVal, avatarVal))
-                            {
-                                oldProps["CA_Avatar"] = avatarVal;
-
-                                if (rumblePlayer?.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
-                                    RigManager.ResolveRigState(rumblePlayer, rig);
-                            }
+                            if (rumblePlayer?.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                                RigManager.ResolveRigState(rumblePlayer, rig);
                         }
 
-                        if (props.TryGetValue("CA_VisibilityMap", out var visVal))
+                        if (props.ContainsKey($"{Calls.Players.GetLocalPlayer().Data.GeneralData.PlayFabMasterId}_CAVisibility"))
                         {
-                            if (!oldProps.TryGetValue("CA_VisibilityMap", out var oldVisVal) || !Equals(oldVisVal, visVal))
+                            VisibilityResult canSeeMe = RigManager.CanPlayerSeeMe(player);
+
+                            if (rumblePlayer?.Controller?.GetComponent<CustomRig>() ?? false)
                             {
-                                oldProps["CA_VisibilityMap"] = visVal;
+                                var tagObj = rumblePlayer.Controller.transform.GetChild(9).Find("CustomAvatarTag");
 
-                                bool canSeeMe = RigManager.CanPlayerSeeMe(player);
-
-                                if (rumblePlayer?.Controller?.GetComponent<CustomRig>() ?? false)
+                                if (tagObj != null && tagObj.TryGetComponent<SpriteRenderer>(out var sr))
                                 {
-                                    var tagObj = rumblePlayer.Controller.transform.GetChild(9).Find("CustomAvatarTag");
-
-                                    if (tagObj != null && tagObj.TryGetComponent<SpriteRenderer>(out var sr))
+                                    sr.color = canSeeMe switch
                                     {
-                                        sr.color = canSeeMe
-                                            ? Color.white
-                                            : new Color(1f, 0.5f, 0.5f, 1f);
-                                    }
+                                        VisibilityResult.Visible => Color.white,
+                                        VisibilityResult.Hidden => new Color(1f, 0.5f, 0.5f, 1f),
+                                        VisibilityResult.Unknown => Color.grey, // Local player doesn't have avatar
+                                        _ => sr.color
+                                    };
                                 }
                             }
                         }
@@ -653,60 +625,60 @@ namespace CustomAvatars
         }
 
         // Adds per-player toggle for ModUI
-        public void AddRigToList(CustomRig rig)
+        public void AddPlayerToList(Player player)
         {
             try
             {
-                if (string.IsNullOrEmpty(rig.PlayerName)) return;
+                if (player?.Controller?.TryGetComponent<CustomRig>(out var rig) ?? false)
+                {
+                    if (string.IsNullOrEmpty(rig.PlayerId)) return;
 
-                if (perPlayerSettings.Count == 0)
-                    perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Settings", false, 0, "", new Tags { DoNotSave = true });
+                    if (perPlayerSettings.Count == 0)
+                        perPlayerHeader = mod.AddToList("<b><#FFB347>- Per Player Settings", false, 0, "", new Tags { DoNotSave = true });
 
-                var entry = new PlayerEntry();
+                    var entry = new PlayerEntry();
                 
-                entry.Toggle = mod.AddToList($"{rig.PlayerName} <#FFF>({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
-                entry.Toggle.SavedValueChanged += (sender, args) =>
-                {
-                    if (toggleOthers.GetValue())
-                        rig.Apply(entry.Toggle.GetValue() ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
+                    entry.Toggle = mod.AddToList($"{rig.PlayerName} <#FFF>({rig.PlayerId})", true, 0, $"Toggles the avatar for {rig.PlayerName}.", new Tags());
+                    entry.Toggle.SavedValueChanged += (sender, args) =>
+                    {
+                        if (toggleOthers.GetValue())
+                            rig.Apply(entry.Toggle.GetValue() ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                     
-                    RigManager.UpdateVisibilityProps();
-                };
+                        RigManager.UpdateVisibilityProps();
+                    };
 
-                entry.ReloadButton = mod.AddToList("   - Reload", false, 0, $"Reloads the avatar for {rig.PlayerName} <#FFF>upon clicking the button.", new Tags { DoNotSave = true });
-                entry.ReloadButton.CurrentValueChanged += (sender, args) =>
-                {
-                    var player = rig.GetComponent<PlayerController>().assignedPlayer;
-
-                    if (RigManager.loadingPlayers.Contains(player.Data.GeneralData.PlayFabMasterId))
-                        return;
+                    entry.ReloadButton = mod.AddToList("   - Reload", false, 0, $"Reloads the avatar for {rig.PlayerName} <#FFF>upon clicking the button.", new Tags { DoNotSave = true });
+                    entry.ReloadButton.CurrentValueChanged += (sender, args) =>
+                    {
+                        if (RigManager.loadingPlayers.Contains(player.Data.GeneralData.PlayFabMasterId))
+                            return;
                     
-                    LoggerInstance.Msg($"Reloading avatar for {rig.PlayerName}");
+                        LoggerInstance.Msg($"Reloading avatar for {rig.PlayerName}");
                     
-                    GameObject.Destroy(rig);
-                    Patches.loadedPlayers.Remove(player.Data.GeneralData.PlayFabMasterId);
-                    Patches.ApplyRig(player);
-                };
+                        GameObject.Destroy(rig);
+                        Patches.loadedPlayers.Remove(player.Data.GeneralData.PlayFabMasterId);
+                        Patches.ApplyRig(player);
+                    };
 
-                perPlayerSettings[rig] = entry;
+                    perPlayerSettings[rig.PlayerId] = entry;
 
-                mod.GetFromFile();
+                    mod.GetFromFile();
+                }
             }
-            catch (Exception ex)
-            {
-                LoggerInstance.Error($"Failed to add rig to ModUI: {ex}");
-            }
+            catch (Exception) { }
         }
 
         // Removes per-player toggle (cleanup if player leaves)
-        public void RemoveRigFromList(CustomRig rig)
+        public void RemovePlayerFromList(Player player)
         {
-            if (perPlayerSettings.TryGetValue(rig, out var settings))
+            var id = player.Data.GeneralData.PlayFabMasterId;
+            
+            if (perPlayerSettings.TryGetValue(id, out var settings))
             {
-                foreach (var setting in settings.GetAllSettings())
-                    mod.Settings.Remove(setting);
+                mod.Settings.Remove(settings.Toggle);
+                mod.Settings.Remove(settings.ReloadButton);
                 
-                perPlayerSettings.Remove(rig);
+                perPlayerSettings.Remove(id);
             }
             
             if (perPlayerHeader != null && perPlayerSettings.Count == 0)
@@ -787,7 +759,7 @@ namespace CustomAvatars
             });
             uploadAvatar.SavedValueChanged += (sender, args) => UploadAvatar();
 
-            reloadToggle.CurrentValueChanged += (sender, args) => Initialize();
+            reloadToggle.CurrentValueChanged += (sender, args) => ApplyAvatars(clearAll: false);
 
             void UpdateAllPlayers()
             {
@@ -867,6 +839,7 @@ namespace CustomAvatars
         public bool IsLocal;
         public bool IsPreview;
         public string PlayerName;
+        public Player Player;
         public string AvatarFilePath;
         public string ModVersion;
 
@@ -1001,6 +974,10 @@ namespace CustomAvatars
 
             PlayerId = playerId;
             IsLocal = isLocal;
+
+            var foundPlayer = Calls.Players.GetAllPlayers().ToArray().FirstOrDefault(p => p.Data.GeneralData.PlayFabMasterId == playerId);
+            if (foundPlayer != null)
+                Player = foundPlayer;
 
             var parent = renderer.transform.parent;
             if (parent != null && parent.childCount > 1)
@@ -1160,8 +1137,10 @@ namespace CustomAvatars
                             }
                         }
 
-                        if (!Main.instance.perPlayerSettings.ContainsKey(this) && !IsLocal && !IsPreview)
-                            Main.instance.AddRigToList(this);
+                        var player = GetComponent<PlayerController>().assignedPlayer;
+                        
+                        if (!Main.instance.perPlayerSettings.ContainsKey(player.Data.GeneralData.PlayFabMasterId) && !IsLocal && !IsPreview)
+                            Main.instance.AddPlayerToList(player);
                         
                         break;
                     default:
