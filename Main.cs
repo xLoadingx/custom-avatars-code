@@ -131,6 +131,9 @@ namespace CustomAvatars
             RigManager.rigs.Clear();
             Patches.loadedPlayers.Clear();
             rigParent = null;
+
+            if (currentScene is "Gym" or "Park")
+                RigManager.OpponentID = string.Empty;
         }
 
         // Deletes cached avatars from disk when you close the game

@@ -25,6 +25,8 @@ public static class RigManager
     public static readonly HashSet<string> loadingPlayers = new();
     public static int activeLoads;
 
+    public static string OpponentID;
+
     public enum VisibilityResult
     {
         Visible,
@@ -456,10 +458,16 @@ public static class RigManager
         if (cam != null)
             cam.nearClipPlane = 0.0001f;
 
-        // Only works if RumbleHud actually exists, so thats neat.
-        var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
-        var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
-        method?.Invoke(null, new object[] { Main.instance.currentScene == "Gym" });
+        var scene = Main.instance.currentScene;
+        if ((scene is "Map0" or "Map1" && masterID != OpponentID) || scene is not ("Map0" or "Map1"))
+        {
+            OpponentID = masterID;
+            
+            // Only works if RumbleHud actually exists, so thats neat.
+            var hudType = Type.GetType("RumbleHud.Hud, RumbleHud");
+            var method = hudType?.GetMethod("RegeneratePortraits", BindingFlags.Static | BindingFlags.Public);
+            method?.Invoke(null, new object[] { Main.instance.currentScene == "Gym" });
+        }
 
         yield return new WaitForSeconds(2f);
 
@@ -725,6 +733,9 @@ public static class RigManager
             {
                 var mats = r.materials;
                 var newMats = new Material[mats.Length];
+
+                if (r is SkinnedMeshRenderer smr)
+                    smr.updateWhenOffscreen = true;
 
                 for (int localIndex = 0; localIndex < mats.Length; localIndex++, globalIndex++)
                 {
