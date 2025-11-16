@@ -21,7 +21,7 @@ using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
 using VisibilityResult = CustomAvatars.RigManager.VisibilityResult;
 
-[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.3.0", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.3.2", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
 [assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
@@ -32,7 +32,7 @@ namespace CustomAvatars
     public static class BuildInfo
     {
         public const string Name = "CustomAvatars";
-        public const string Version = "1.3.0";
+        public const string Version = "1.3.2";
     }
     
     public static class Extensions
@@ -101,6 +101,8 @@ namespace CustomAvatars
         private Dictionary<int, Hashtable> lastProps = new();
 
         public static Material poseGhostMaterial;
+
+        public List<Transform> previewScanList = new();
 
         public GameObject bodyDouble;
         public GameObject currentRig;
@@ -253,6 +255,10 @@ namespace CustomAvatars
             {
                 var props = new Hashtable();
                 props["CA_ModVersion"] = BuildInfo.Version;
+                
+                var toggles = RigManager.avatarSettingBools.Select(s => (bool)s.Value).ToList();
+                props["Ca_Params"] = RigManager.PackParams(toggles);
+                
                 PhotonNetwork.LocalPlayer.SetCustomProperties(props);
             }
             
@@ -514,6 +520,22 @@ namespace CustomAvatars
             previewCustomRig.CaptureRig(newRig);
             
             previewCustomRig.Config = localRig.Config;
+            previewScanList = RigManager.Scan(newRig.transform);
+
+            for (int i = 0; i < previewCustomRig.Config.parameters.Count; i++)
+            {
+                var param = previewCustomRig.Config.parameters[i];
+                var setting = RigManager.avatarSettingBools[i];
+                
+                GameObject previewObj = previewScanList[param.targetIndex].gameObject;
+
+                previewObj.SetActive((bool)setting.Value);
+
+                setting.SavedValueChanged += (sender, args) =>
+                {
+                    previewObj.SetActive((bool)setting.Value);
+                };
+            }
         
             RigManager.ApplyRigToSMR(previewController.transform.GetChild(1), newRig, previewController.GetComponent<Animator>(), customRig: previewCustomRig);
             RigManager.rigs["Preview Controller (Dressing Room)"] = previewCustomRig;
@@ -611,6 +633,12 @@ namespace CustomAvatars
                                     };
                                 }
                             }
+                        }
+
+                        if (props.ContainsKey("CA_Params") && rumblePlayer.Controller.TryGetComponent<CustomRig>(out var customRig))
+                        {
+                            int mask = Convert.ToInt32(props["CA_Params"]);
+                            RigManager.ApplyRemoteParams(customRig, mask);
                         }
                     }
                 }
@@ -734,7 +762,7 @@ namespace CustomAvatars
         public void OnUIInitialized()
         {
             mod.ModName = "<b><#6A5ACD>Custom Avatars</color></b>";
-            mod.ModVersion = "1.0.0";
+            mod.ModVersion = "1.3.1";
                 
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
@@ -852,6 +880,7 @@ namespace CustomAvatars
         public GameObject PlayerRoot;
         public Transform Head;
         public Animator animator;
+        public List<Transform> rigScan;
 
         public PlayerVoiceSystem voiceSystem;
         
@@ -1045,6 +1074,7 @@ namespace CustomAvatars
             }
 
             RigBones = rig.GetComponentsInChildren<Transform>();
+            rigScan = RigManager.Scan(rig.transform);
         }
 
         public List<GrabbableObject> ParseGrabbableObjectsRecursive(Transform root, Player player)

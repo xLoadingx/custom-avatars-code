@@ -12,6 +12,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using Newtonsoft.Json;
 using RumbleModdingAPI;
+using RumbleModUI;
 using UnityEngine;
 using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
 using Stack = System.Collections.Stack;
@@ -24,6 +25,10 @@ public static class RigManager
     public static readonly Dictionary<string, CustomRig> rigs = new();
     public static readonly HashSet<string> loadingPlayers = new();
     public static int activeLoads;
+
+    public static ModSetting<bool> avatarSettingsHeader;
+    public static List<ModSetting<bool>> avatarSettingBools = new();
+    public static List<Transform> scanList = new();
 
     public static string OpponentID;
 
@@ -379,6 +384,19 @@ public static class RigManager
 
             rigs[playerID] = customRig;
 
+            scanList = Scan(rigInstance.transform);
+
+            if (isLocal)
+            {
+                if (avatarSettingsHeader != null)
+                    Main.instance.mod.Settings.Remove(avatarSettingsHeader);
+                avatarSettingsHeader = null;
+
+                foreach (var param in avatarSettingBools)
+                    Main.instance.mod.Settings.Remove(param);
+                avatarSettingBools.Clear();
+            }
+            
             TextAsset jsonAsset = rigBundle.LoadAsset<TextAsset>("Config");
 
             if (jsonAsset == null)
@@ -412,6 +430,43 @@ public static class RigManager
                     else
                         Warning(
                             $"Blendshape '{blendshape.name}' not found on mesh '{customRig.MeshRenderer.sharedMesh.name}'");
+                }
+
+                if (isLocal)
+                {
+                    foreach (var param in customRig.Config.parameters)
+                    {
+                        avatarSettingsHeader ??= Main.instance.mod.AddToList("<b><#a600ff>Avatar Settings", false, 0, "", new Tags { DoNotSave = true });
+                    
+                        if (param.type == ParamType.Bool)
+                        {
+                            if (param.targetIndex < 0 || param.targetIndex >= scanList.Count)
+                            {
+                                Warning($"Parameter '{param.uiLabel}' refers to invalid index {param.targetIndex}");
+                                continue;
+                            }
+                            
+                            var setting = Main.instance.mod.AddToList($"- {param.uiLabel}", param.defaultToggle, 0, $"Toggle for '{param.uiLabel}'", new Tags());
+                            Main.instance.mod.GetFromFile();
+                            
+                            GameObject toggleObject = scanList[param.targetIndex].gameObject;
+                            toggleObject.SetActive((bool)setting.Value);
+                            setting.SavedValueChanged += (sender, args) =>
+                            {
+                                toggleObject.SetActive((bool)setting.Value);
+
+                                if (Main.instance.currentScene != "Gym")
+                                {
+                                    var toggles = avatarSettingBools.Select(s => (bool)s.Value).ToList();
+                                    Hashtable ht = new Hashtable();
+                                    ht["Ca_Params"] = PackParams(toggles);
+                                    PhotonNetwork.LocalPlayer.SetCustomProperties(ht);
+                                }
+                            };
+                        
+                            avatarSettingBools.Add(setting);
+                        }
+                    }
                 }
             }
 
@@ -447,6 +502,53 @@ public static class RigManager
         {
             activeLoads--;
             loadingPlayers.Remove(playerID);
+        }
+    }
+    
+    public static List<Transform> Scan(Transform root)
+    {
+        var list = new List<Transform>();
+
+        void Recurse(Transform t)
+        {
+            list.Add(t);
+            for (int i = 0; i < t.childCount; i++)
+                Recurse(t.GetChild(i));
+        }
+
+        Recurse(root);
+        return list;
+    }
+
+    public static int PackParams(List<bool> list)
+    {
+        int mask = 0;
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (list[i])
+                mask |= (1 << i);
+        }
+
+        return mask;
+    }
+
+    public static void ApplyRemoteParams(CustomRig rig, int mask)
+    {
+        var config = rig.Config;
+        var scan = rig.rigScan;
+
+        for (int i = 0; i < config.parameters.Count; i++)
+        {
+            var param = config.parameters[i];
+            if (param.type != ParamType.Bool)
+                continue;
+
+            bool value = (mask & (1 << i)) != 0;
+
+            int idx = param.targetIndex;
+            if (idx >= 0 && idx < scan.Count && scan[idx] != null)
+                scan[idx].gameObject.SetActive(value);
         }
     }
 
@@ -847,6 +949,13 @@ public static class RigManager
     }
 }
 
+public enum ParamType
+{
+    Bool,
+    Float,
+    Int
+}
+
 [Serializable]
 public class AvatarDescriptorExport
 {
@@ -864,6 +973,7 @@ public class AvatarDescriptorExport
     public int jawOpenBlendshape = -1;
     public float voiceMultiplier = 1f;
     public EyeSettings eyeSettings = new EyeSettings();
+    public List<AvatarParam> parameters = new();
 }
 
 [Serializable]
@@ -891,6 +1001,18 @@ public class BlendshapeDefault
     public string name;
     public int index;
     public float weight;
+}
+
+[Serializable]
+public class AvatarParam
+{
+    public ParamType type;
+    public bool networked = true;
+    public string uiLabel;
+
+    // if bool
+    public int targetIndex = -1;
+    public bool defaultToggle = true;
 }
 
 // This doesn't seem to work anymore for some reason
