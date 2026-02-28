@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Globalization;
+using Il2CppRUMBLE.Managers;
 using Il2CppSystem.Text;
 using Il2CppTMPro;
 using MelonLoader;
@@ -106,7 +107,7 @@ public class RemoteAvatarLoader
         TextMeshPro serverStatusText = null
     )
     {
-        var data = Calls.Players.GetLocalPlayer().Data.GeneralData;
+        var data = PlayerManager.instance.LocalPlayer.Data.GeneralData;
         if (masterId != data.PlayFabMasterId)
         {
             Main.instance.LoggerInstance.Error($"Player tried to upload avtar for masterId that isn't theirs.");
@@ -216,7 +217,9 @@ public class RemoteAvatarLoader
 
         yield return new WaitForSeconds(2f);
 
-        var body = $"{{\"message\":\"Upload bundle for {masterId}. Uploaded by {data.PublicUsername.TrimString()}\",\"content\":\"{Convert.ToBase64String(bytes)}\",\"branch\":\"{BRANCH}\"" +
+        var encryped = XorCrypt(bytes);
+        
+        var body = $"{{\"message\":\"Upload bundle for {masterId}. Uploaded by {data.PublicUsername.TrimString()}\",\"content\":\"{Convert.ToBase64String(encryped)}\",\"branch\":\"{BRANCH}\"" +
                    (sha != null ? $",\"sha\":\"{sha}\"" : "") + "}";
 
         var url = UploadUrlForPath($"avatars/{masterId}");
@@ -361,7 +364,7 @@ public class RemoteAvatarLoader
         }
         
         // Contained inside of the file uploaded itself
-        var metaUrl = $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{Uri.EscapeDataString(masterId)}?ref={BRANCH}";
+        var metaUrl = $"https://api.github.com/repos/{GH_REPO}/contents/avatars/{Uri.EscapeDataString(masterId.Split('_')[0])}?ref={BRANCH}";
         var metaReq = UnityWebRequest.Get(metaUrl);
         SetGhHeaders(metaReq, wantRaw: false);
         yield return metaReq.SendWebRequest();
@@ -415,7 +418,7 @@ public class RemoteAvatarLoader
         }
         metaReq.Dispose();
         
-        var req = UnityWebRequest.Get(GhUrl(masterId));
+        var req = UnityWebRequest.Get(GhUrl(masterId.Split('_')[0]));
         SetGhHeaders(req, true);
         yield return req.SendWebRequest();
 

@@ -1,8 +1,10 @@
 using System.Collections;
+using System.Reflection;
 using UnityEngine;
 using HarmonyLib;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
+using Il2CppRUMBLE.Managers;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
 using MelonLoader;
@@ -36,7 +38,7 @@ public class Patches
                     
                 MelonCoroutines.Start(RigManager.LoadRigForPlayer(player, (rig) =>
                 {
-                    MelonCoroutines.Start(RigManager.FixHUDCamera(player.Data.GeneralData.PlayFabMasterId));
+                    MelonCoroutines.Start(RigManager.FixHUDCamera(player.Data.GeneralData.PlayFabMasterId.Split('_')[0]));
                     RigManager.UpdateVisibilityProps();
                     MelonCoroutines.Start(CheckForMod(player));
                 }, true, avatarDetails.returnedSha));
@@ -60,7 +62,12 @@ public class Patches
 
                 if (Main.instance.tagObject == null)
                 {
-                    var tagIcon = Calls.LoadAssetFromStream<Sprite>(Main.instance, "CustomAvatars.AssetBundles.avatarthingies", "icon");
+                    using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("CustomAvatars.AssetBundles.avatarthingies");
+                    using var ms = new MemoryStream();
+                    stream.CopyTo(ms);
+
+                    var bundle = AssetBundle.LoadFromMemory(ms.ToArray());
+                    var tagIcon = bundle.LoadAsset<Sprite>("icon");
                     GameObject tag = new GameObject("CustomAvatarTag");
                     
                     var renderer = tag.AddComponent<SpriteRenderer>();
@@ -140,11 +147,11 @@ public class Patches
             if (IsEnabled())
                 return;
             
-            var localPlayer = Calls.Players.GetLocalPlayer()?.Controller;
+            var localPlayer = PlayerManager.instance.LocalPlayer?.Controller;
             if (localPlayer?.TryGetComponent<CustomRig>(out var rig) ?? false)
             {
-                rig.OriginalVisualsMaterial = new Material(localPlayer.GetSubsystem<PlayerVisuals>().NonHeadClippedMaterial);
-                rig.OriginalVisualsMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
+                // rig.OriginalVisualsMaterial = new Material(localPlayer.GetSubsystem<PlayerVisuals>().NonHeadClippedMaterial);
+                // rig.OriginalVisualsMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
             }
         }
 

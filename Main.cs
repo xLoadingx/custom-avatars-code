@@ -3,6 +3,7 @@ using System.Reflection;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.CharacterCreation.Interactable;
 using Il2CppRUMBLE.Interactions.InteractionBase;
+using Il2CppRUMBLE.Managers;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
 using Il2CppSmartLocalization.Editor;
@@ -11,6 +12,7 @@ using UnityEngine;
 using RumbleModdingAPI;
 using MelonLoader;
 using MelonLoader.Utils;
+using RumbleModdingAPI.RMAPI;
 using RumbleModUI;
 using UnityEngine.Events;
 using UnityEngine.Playables;
@@ -21,7 +23,7 @@ using Object = UnityEngine.Object;
 using static UnityEngine.Mathf;
 using VisibilityResult = CustomAvatars.RigManager.VisibilityResult;
 
-[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.3.2", "ERROR")]
+[assembly: MelonInfo(typeof(Main), "CustomAvatars", "1.4.0", "ERROR")]
 [assembly: MelonGame("Buckethead Entertainment", "RUMBLE")]
 [assembly: MelonOptionalDependencies("RumbleHud")]
 [assembly: MelonColor(255, 255, 0, 0)]
@@ -32,7 +34,7 @@ namespace CustomAvatars
     public static class BuildInfo
     {
         public const string Name = "CustomAvatars";
-        public const string Version = "1.3.2";
+        public const string Version = "1.4.0";
     }
     
     public static class Extensions
@@ -114,11 +116,10 @@ namespace CustomAvatars
 
         // TODO:
         // Add avatar settings (along with making Animator Controllers work with it)
-        // Try and figure out if I can fiddle with RockCam to show more than one material
         
         public override void OnLateInitializeMelon()
         {
-            Calls.onMapInitialized += Initialize;
+            Actions.onMapInitialized += (scene) => MelonCoroutines.Start(Initialize(scene));
             UI.instance.UI_Initialized += OnUIInitialized;
             LoggerInstance.Msg("Custom Avatars Initialized");
             RigManager.Initialize(this);
@@ -157,21 +158,20 @@ namespace CustomAvatars
 
         // Resets rigs and builds a few things in Gym
         // Loads the Optimization text and the reload button
-        public void Initialize()
+        public IEnumerator Initialize(string scene)
         {
+            yield return new WaitForSeconds(1f);
+            
             RigManager.ClearRigs();
             lastProps.Clear();
 
             string filePath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             Directory.CreateDirectory(filePath);
 
-            ApplyAvatars();
-
             // Making objects in code is fun looking
             if (currentScene == "Gym" && !sceneInitialized)
             {
-                tryoutModeButton = Calls.GameObjects.Gym.LOGIC.DressingRoom.Controlpanel.Controls
-                    .Frameattachment.TryOutModePanel.GetGameObject();
+                tryoutModeButton = GameObjects.Gym.INTERACTABLES.DressingRoom.Controlpanel.Controls.Frameattachment.TryOutModePanel.GetGameObject();
 
                 uploadAvatarButton = GameObject.Instantiate(tryoutModeButton, tryoutModeButton.transform.parent, false);
                 uploadAvatarButton.name = "Upload Avatar Panel";
@@ -183,7 +183,7 @@ namespace CustomAvatars
                 
                 InteractionButton interactionButton = refreshAvatarButton.transform.GetChild(1).GetChild(0).GetComponent<InteractionButton>();
                 interactionButton.onPressed.RemoveAllListeners();
-                interactionButton.onPressed.AddListener((UnityAction)(() => { if ((bool)toggleLocal.SavedValue) Initialize(); }));
+                interactionButton.onPressed.AddListener((UnityAction)(() => { if ((bool)toggleLocal.SavedValue) MelonCoroutines.Start(Initialize(scene)); }));
                 interactionButton.interactionAnimParameter = "nan";
                 interactionButton.InteractionAnimParameterL = "nan";
                 interactionButton.InteractionAnimParameterR = "nan";
@@ -209,7 +209,7 @@ namespace CustomAvatars
                 avatarOptimizationParent.transform.localScale = Vector3.one * 0.5f;
                 avatarOptimizationParent.transform.localRotation = Quaternion.Euler(6.3636f, 241.8925f, 0f);
                 
-                uploadProgressBar = GameObject.Instantiate(Calls.GameObjects.Gym.LOGIC.Heinhouserproducts.
+                uploadProgressBar = GameObject.Instantiate(GameObjects.Gym.INTERACTABLES.
                     ProgressTracker.ProgressPanel.StatusBar.GetGameObject(), avatarOptimizationParent.transform, false);
                 uploadProgressBar.name = "Upload Progress Bar";
                 uploadProgressBar.transform.localScale = new Vector3(0.8562f, 0.0544f, 0.854f);
@@ -218,27 +218,27 @@ namespace CustomAvatars
                 uploadProgressBar.GetComponent<MeshRenderer>().material.SetFloat("_RC_Target", 1f);
                 uploadProgressBar.SetActive(false);
                 
-                var summary = Calls.Create.NewText("GOOD", 1f, new Color(0f, 0.5f, 0f), Vector3.zero, Quaternion.identity);
+                var summary = Create.NewText("GOOD", 1f, new Color(0f, 0.5f, 0f), Vector3.zero, Quaternion.identity);
                 summary.name = "Summary";
                 summary.transform.SetParent(avatarOptimizationParent.transform, false);
                 summary.transform.localPosition = new Vector3(0f, 0.0919f, 0f);
                 summary.GetComponent<TextMeshPro>().enableWordWrapping = false;
                 summary.GetComponent<TextMeshPro>().alignment = TextAlignmentOptions.Center;
                 
-                var details = Calls.Create.NewText("0 verts, 0 mat(s), 0 texture(s)", 1f, new Color(0f, 0.5f, 0f), Vector3.zero, Quaternion.identity);
+                var details = Create.NewText("0 verts, 0 mat(s), 0 texture(s)", 1f, new Color(0f, 0.5f, 0f), Vector3.zero, Quaternion.identity);
                 details.name = "Details";
                 details.transform.SetParent(avatarOptimizationParent.transform, false);
                 details.GetComponent<TextMeshPro>().enableWordWrapping = false;
                 details.GetComponent<TextMeshPro>().alignment = TextAlignmentOptions.Center;
                 
-                var warnings = Calls.Create.NewText("WARNINGS:", 1f, new Color(1, 1, 0), Vector3.zero, Quaternion.identity);
+                var warnings = Create.NewText("WARNINGS:", 1f, new Color(1, 1, 0), Vector3.zero, Quaternion.identity);
                 warnings.name = "Warnings";
                 warnings.transform.SetParent(avatarOptimizationParent.transform, false);
                 warnings.transform.localPosition = new Vector3(0, -0.0919f, 0f);
                 warnings.GetComponent<TextMeshPro>().enableWordWrapping = false;
                 warnings.GetComponent<TextMeshPro>().alignment = TextAlignmentOptions.Center;
 
-                var newServerStatus = Calls.Create.NewText("Up To Date",1f, new Color(0, 1, 1), Vector3.zero, Quaternion.identity);
+                var newServerStatus = Create.NewText("Up To Date",1f, new Color(0, 1, 1), Vector3.zero, Quaternion.identity);
                 newServerStatus.name = "AvatarServerStatus";
                 newServerStatus.transform.SetParent(avatarOptimizationParent.transform, false);
                 newServerStatus.transform.localPosition = new Vector3(-1.9309f, 0.2499f, -0.4545f);
@@ -261,6 +261,8 @@ namespace CustomAvatars
                 
                 PhotonNetwork.LocalPlayer.SetCustomProperties(props);
             }
+            
+            ApplyAvatars();
             
             sceneInitialized = true;
         }
@@ -288,8 +290,13 @@ namespace CustomAvatars
 
             if (bodyDouble != null)
             {
-                GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
-                    Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
+                var path = Directory
+                    .GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar")
+                    .FirstOrDefault();
+
+                var bundle = AssetBundle.LoadFromFile(path);
+                GameObject newRig = bundle.LoadAsset<GameObject>("Rig");
+                bundle.Unload(false);
 
                 newRig.name = "RIG - CloneBending Clone";
                 newRig.transform.SetParent(rigParent.transform, true);
@@ -399,8 +406,8 @@ namespace CustomAvatars
             if (clearAll)
                 RigManager.ClearRigs();
             
-            Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
-            Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+            PlayerManager.instance.LocalPlayer.Controller.GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
+            GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
                 .cullingMask |= (1 << 2);
             
             var localPlayer = Calls.Players.GetLocalPlayer();
@@ -462,7 +469,7 @@ namespace CustomAvatars
                 if (currentScene == "Gym" && rig != null)
                 {
                     var previewController =
-                        Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
+                        GameObjects.Gym.INTERACTABLES.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
                     
                     currentRig = rig;
                     LoadPreviewController();
@@ -482,8 +489,8 @@ namespace CustomAvatars
 
             if (currentScene == "Gym" && poseGhostMaterial == null)
             {
-                poseGhostMaterial = new Material(Calls.GameObjects.Gym.LOGIC.Heinhouserproducts.
-                    MoveLearning.Ghost.Ghost_.Visuals.
+                poseGhostMaterial = new Material(GameObjects.Gym.INTERACTABLES.
+                    PoseGhost.Ghost.StaticGhost.Visuals.
                     Poseghostbody.GetGameObject().
                     GetComponent<SkinnedMeshRenderer>().material);
                 poseGhostMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
@@ -494,10 +501,15 @@ namespace CustomAvatars
         {
             // Preview Controller in Dressing Room
             var previewController =
-                Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
+                GameObjects.Gym.INTERACTABLES.DressingRoom.PreviewPlayerController.Visuals.GetGameObject();
 
-            GameObject newRig = Calls.LoadAssetBundleGameObjectFromFile(
-                Directory.GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar").FirstOrDefault(), "Rig");
+            var path = Directory
+                .GetFiles(Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars"), "*.rumbleavatar")
+                .FirstOrDefault();
+
+            var bundle = AssetBundle.LoadFromFile(path);
+            GameObject newRig = bundle.LoadAsset<GameObject>("Rig");
+            bundle.Unload(false);
 
             newRig.name = "RIG - Preview Controller (Dressing Room)";
             newRig.transform.SetParent(rigParent.transform, true);
@@ -582,7 +594,7 @@ namespace CustomAvatars
 
             if (currentScene == "Gym")
             {
-                var dressingRoom = Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject();
+                var dressingRoom = GameObjects.Gym.INTERACTABLES.DressingRoom.GetGameObject();
                 if (!dressingRoom.activeSelf)
                 {
                     dressingRoom.SetActive(true);
@@ -651,7 +663,7 @@ namespace CustomAvatars
             if (reloadKeybind != null && Enum.TryParse((string)reloadKeybind.SavedValue, true, out KeyCode parsed))
             {
                 if (Input.GetKeyDown(parsed))
-                    Initialize();
+                    MelonCoroutines.Start(Initialize(currentScene));
             }
         }
 
@@ -762,7 +774,7 @@ namespace CustomAvatars
         public void OnUIInitialized()
         {
             mod.ModName = "<b><#6A5ACD>Custom Avatars</color></b>";
-            mod.ModVersion = "1.3.1";
+            mod.ModVersion = BuildInfo.Version;
                 
             mod.SetFolder("CustomAvatars");
             mod.AddToList("Description", "", "Allows custom avatars for you or specific people.", new Tags());
@@ -824,11 +836,11 @@ namespace CustomAvatars
                 if (currentScene == "Gym")
                 {
                     if (!enabled)
-                        Calls.GameObjects.Gym.LOGIC.DressingRoom.GetGameObject().GetComponent<DressingRoom>().UpdatePlayerVisuals();
+                        GameObjects.Gym.INTERACTABLES.DressingRoom.GetGameObject().GetComponent<DressingRoom>().UpdatePlayerVisuals();
                     
                     SetObjectsActive();
                     
-                    Calls.GameObjects.Gym.LOGIC.DressingRoom.PreviewPlayerController.GetGameObject().GetComponent<CustomRig>()?
+                    GameObjects.Gym.INTERACTABLES.DressingRoom.PreviewPlayerController.GetGameObject().GetComponent<CustomRig>()?
                         .Apply(enabled ? CustomRig.RigState.Rigged : CustomRig.RigState.Original);
                 }
 
@@ -1026,8 +1038,8 @@ namespace CustomAvatars
             playerVisuals = parent.GetComponent<PlayerVisuals>();
             if (playerVisuals != null && isLocal)
             {
-                OriginalVisualsMaterial = Instantiate(playerVisuals.NonHeadClippedMaterial);
-                OriginalVisualsMaterial.hideFlags = HideFlags.HideAndDontSave | HideFlags.DontUnloadUnusedAsset;
+                // OriginalVisualsMaterial = Instantiate(playerVisuals.NonHeadClippedMaterial);
+                // OriginalVisualsMaterial.hideFlags = HideFlags.HideAndDontSave | HideFlags.DontUnloadUnusedAsset;
             }
             
             animator = parent.GetComponent<Animator>();
@@ -1053,7 +1065,7 @@ namespace CustomAvatars
 
             if (!IsPreview)
             {
-                var headset = renderer.transform.root.GetChild(2).GetChild(0).GetChild(0);
+                var headset = renderer.transform.parent.parent.GetChild(2).GetChild(0).GetChild(0);
                 voiceSystem = headset.GetChild(2).GetComponent<PlayerVoiceSystem>();
                 eyeSystem = headset.GetComponent<PlayerEyeSystem>();
             }
@@ -1108,13 +1120,9 @@ namespace CustomAvatars
                         MeshRenderer.materials = new[] { OriginalMaterial };
                         MeshRenderer.bones = OriginalBones;
                         MeshRenderer.sharedMesh = OriginalMesh;
-                        Root.SetActive(false);
 
                         foreach (var bone in RigBones)
                             bone.gameObject.SetActive(false);
-                        
-                        if (playerVisuals != null && IsLocal)
-                            playerVisuals.NonHeadClippedMaterial = OriginalVisualsMaterial;
                         
                         if (blinkCoroutine != null) MelonCoroutines.Stop(blinkCoroutine); blinkCoroutine = null;
                         break;
@@ -1124,9 +1132,6 @@ namespace CustomAvatars
                             MeshRenderer.materials = RigMaterials;
                             MeshRenderer.bones = RigBones;
                             MeshRenderer.sharedMesh = RigMesh;
-                            
-                            if (playerVisuals != null && IsLocal)
-                                playerVisuals.NonHeadClippedMaterial = RigVisualsMaterial;
                         }
                         Root.SetActive(true);
 
@@ -1136,8 +1141,8 @@ namespace CustomAvatars
                             {
                                 MeshRenderer.shadowCastingMode = ShadowCastingMode.Off;
                                 MeshRenderer.gameObject.layer = 2;
-                                Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask &= ~(1 << 2);
-                                Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+                                PlayerManager.instance.LocalPlayer.Controller.GetSubsystem<PlayerCamera>().camera.cullingMask &= ~(1 << 2);
+                                GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
                                     .cullingMask &= ~(1 << 2);
                             
                                 foreach (var renderer in Root.GetComponentsInChildren<Renderer>())
@@ -1147,8 +1152,8 @@ namespace CustomAvatars
                             {
                                 MeshRenderer.shadowCastingMode = ShadowCastingMode.On;
                                 MeshRenderer.gameObject.layer = 23;
-                                Calls.Players.GetPlayerController().GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
-                                Calls.GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
+                                PlayerManager.instance.LocalPlayer.Controller.GetSubsystem<PlayerCamera>().camera.cullingMask |= (1 << 2);
+                                GameObjects.DDOL.GameInstance.Initializable.RecordingCamera.GetGameObject().GetComponent<Camera>()
                                     .cullingMask |= (1 << 2);
                             }
                         }

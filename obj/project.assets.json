@@ -13,11 +13,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "E:\\Visual Studio Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
+      "projectUniqueName": "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
       "projectName": "CustomAvatars",
-      "projectPath": "E:\\Visual Studio Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
+      "projectPath": "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
       "packagesPath": "C:\\Users\\bella\\.nuget\\packages\\",
-      "outputPath": "E:\\Visual Studio Projects\\CustomAvatars\\CustomAvatars\\obj\\",
+      "outputPath": "E:\\Projects\\CustomAvatars\\CustomAvatars\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\bella\\AppData\\Roaming\\NuGet\\NuGet.Config",

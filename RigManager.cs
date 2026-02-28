@@ -2,6 +2,8 @@ using System.Collections;
 using System.Reflection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using Il2CppPhoton.Pun;
+using Il2CppRootMotion.FinalIK;
+using Il2CppRUMBLE.Managers;
 using Il2CppRUMBLE.MoveSystem;
 using Il2CppRUMBLE.MoveSystem.Testing;
 using Il2CppRUMBLE.Players;
@@ -12,6 +14,7 @@ using MelonLoader;
 using MelonLoader.Utils;
 using Newtonsoft.Json;
 using RumbleModdingAPI;
+using RumbleModdingAPI.RMAPI;
 using RumbleModUI;
 using UnityEngine;
 using Hashtable = Il2CppExitGames.Client.Photon.Hashtable;
@@ -202,39 +205,6 @@ public static class RigManager
         il2CppStream.Flush();
         return il2CppStream;
     }
-
-    // Semi-async bundle load
-    // File I/O happens on a background thread,
-    // but Unity's LoadFromStream still blocks the main thread.
-    // Somehow feels smoother...
-    public static IEnumerator LoadAssetBundleFromFileAsync(string filePath, bool isLocal, Action<AssetBundle> onLoaded)
-    {
-        MemoryStream ms = null; 
-        Task loadTask = Task.Run(() =>
-        {
-            byte[] bytes = File.ReadAllBytes(filePath); 
-            
-            if (!isLocal) 
-                bytes = RemoteAvatarLoader.XorCrypt(bytes); 
-            
-            ms = new MemoryStream(bytes);
-        }); 
-        
-        while (!loadTask.IsCompleted) 
-            yield return null;
-
-        if (ms == null)
-        {
-            onLoaded?.Invoke(null); 
-            yield break;
-        } 
-        
-        ms.Position = 0; 
-        Il2CppSystem.IO.Stream il2cppStream = ConvertToIl2CppStream(ms); 
-        AssetBundle bundle = AssetBundle.LoadFromStream(il2cppStream); 
-        
-        onLoaded?.Invoke(bundle);
-    }
     
     // Main rig loader
     public static IEnumerator LoadRigForPlayer(Player player, Action<GameObject> onLoaded, bool log = true, string remoteSha = null)
@@ -262,7 +232,7 @@ public static class RigManager
 
         try
         {
-            bool isLocal = player == Calls.Players.GetLocalPlayer();
+            bool isLocal = player == PlayerManager.instance.LocalPlayer;
 
             string opponentPath = Path.Combine(MelonEnvironment.UserDataDirectory, "CustomAvatars", "Opponents");
             if (!Directory.Exists(opponentPath)) Directory.CreateDirectory(opponentPath);
@@ -276,7 +246,7 @@ public static class RigManager
             // Hands tend to break when loading rig because the hands have different finger rotatations
             // than base pose
             player.Controller.GetSubsystem<PlayerHandPresence>().enabled = false;
-
+            
             if (!isLocal)
             {
                 if (File.Exists(filePath) && !string.IsNullOrEmpty(remoteSha))
@@ -313,10 +283,22 @@ public static class RigManager
                 yield break;
             }
 
-            AssetBundle rigBundle = null;
-            yield return MelonCoroutines.Start(LoadAssetBundleFromFileAsync(rigPath, isLocal,
-                (bundle) => { rigBundle = bundle; }));
 
+            AssetBundleCreateRequest request = null;
+
+            if (isLocal)
+            {
+                request = AssetBundle.LoadFromFileAsync(rigPath);
+            }
+            else
+            {
+                byte[] decrypted = RemoteAvatarLoader.XorCrypt(File.ReadAllBytes(rigPath));
+                request = AssetBundle.LoadFromMemoryAsync(decrypted);
+            }
+            
+            yield return request;
+            var rigBundle = request.assetBundle;
+            
             if (rigBundle == null)
             {
                 Error("Failed to load AssetBundle.");
@@ -351,7 +333,7 @@ public static class RigManager
                 rigBundle.Unload(true);
                 yield break;
             }
-
+            
             var rigInstance = GameObject.Instantiate(rigPrefab, Main.instance.rigParent.transform, true);
             rigInstance.name = $"RIG - {playerID}";
 
@@ -582,27 +564,48 @@ public static class RigManager
     {
         var state = CustomRig.RigState.Rigged;
 
-        // If toggle others is off, always turn other avatars off
         if (!(bool)Main.instance.toggleOthers.Value)
+        {
             state = CustomRig.RigState.Original;
+        }
         else
         {
-            var view = player?.Controller?.GetComponent<PhotonView>();
-            var props = view?.Controller?.CustomProperties;
-            
-            if (props == null || !props.TryGetValue("CA_Avatar", out var val) || !val.Unbox<bool>()) // See if their `show for others` is on/off, priority
-                state = CustomRig.RigState.Original;
-            else if (Main.instance.perPlayerSettings.TryGetValue(rig.PlayerId, out var settings) && !(bool)settings.Toggle.SavedValue) // if it is, but their per-player is off
-                state = CustomRig.RigState.Original;
-            else if (!(bool)Main.instance.toggleIfNewerVersion.Value &&
-                     Version.TryParse(rig.ModVersion, out var otherVersion) &&
-                     Version.TryParse(BuildInfo.Version, out var localVersion) &&
-                     otherVersion > localVersion) // If `toggle newer version` is off, and it's able to parse both, and theirs is higher
-                state = CustomRig.RigState.Original;
+            bool isFake =
+                player?.Controller?.GetComponent<PlayerSessionStateSystem>() == null;
+
+            if (isFake)
+            {
+                state = CustomRig.RigState.Rigged;
+            }
+            else
+            {
+                var view = player?.Controller?.GetComponent<PhotonView>();
+                var props = view?.Controller?.CustomProperties;
+
+                if (props == null ||
+                    !props.TryGetValue("CA_Avatar", out var val) ||
+                    !val.Unbox<bool>())
+                {
+                    state = CustomRig.RigState.Original;
+                }
+                else if (Main.instance.perPlayerSettings.TryGetValue(rig.PlayerId, out var settings) &&
+                         !(bool)settings.Toggle.SavedValue)
+                {
+                    state = CustomRig.RigState.Original;
+                }
+                else if (!(bool)Main.instance.toggleIfNewerVersion.Value &&
+                         Version.TryParse(rig.ModVersion, out var otherVersion) &&
+                         Version.TryParse(BuildInfo.Version, out var localVersion) &&
+                         otherVersion > localVersion)
+                {
+                    state = CustomRig.RigState.Original;
+                }
+            }
         }
 
         if (setRig)
             rig.Apply(state);
+
         return state;
     }
     
@@ -777,6 +780,9 @@ public static class RigManager
 
             playerRenderer.enabled = false;
 
+            rumbleAnimator.enabled = false;
+            visuals?.GetComponent<VRIK>()?.FixTransforms();
+
             foreach (var t in rig.GetComponentsInChildren<Collider>(true))
                 GameObject.Destroy(t);
 
@@ -862,36 +868,12 @@ public static class RigManager
                         mat.SetFloat("_IsLocal", customRig.IsLocal ? 1f : 0f);
 
                     newMats[localIndex] = mat;
-                    
-                    if (globalIndex == customRig.Config.bodyShaderSlot && visuals != null && customRig.IsLocal && customRig.Config.swapOriginalMesh)
-                    {
-                        visuals.NonHeadClippedMaterial = new Material(visuals.NonHeadClippedMaterial);
-
-                        if (isPlayerShader)
-                        {
-                            var baseMap = original.GetTexture("_BaseMap");
-                            if (baseMap != null)
-                                visuals.NonHeadClippedMaterial.SetTexture("_ColorAtlas", baseMap);
-                        }
-                        else
-                        {
-                            visuals.NonHeadClippedMaterial = mat;
-                            if (visuals.NonHeadClippedMaterial.HasFloat("_IsLocal"))
-                                visuals.NonHeadClippedMaterial.SetFloat("_IsLocal", 0f);
-                        }
-                    }
                 }
 
                 if (r == rigRenderer && customRig.Config.swapOriginalMesh)
                     playerRenderer.materials = newMats;
                 else
                     r.materials = newMats;
-            }
-
-            if (visuals != null && customRig.IsLocal)
-            {
-                customRig.RigVisualsMaterial = new Material(visuals.NonHeadClippedMaterial);
-                customRig.RigVisualsMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset | HideFlags.HideAndDontSave;
             }
             
             if (!customRig.Config.swapOriginalMesh)
@@ -928,7 +910,8 @@ public static class RigManager
 
             if (rigRenderer.gameObject != null && customRig.Config.swapOriginalMesh)
                 GameObject.Destroy(rigRenderer.gameObject);
-
+            
+            rumbleAnimator.enabled = true;
             playerRenderer.enabled = true;
         }
 
@@ -1054,8 +1037,8 @@ public class GrabbableObject : MonoBehaviour
 
     private void Update()
     {
-        bool leftGrip = player.Controller.GetSubsystem<PlayerHandPresence>().leftHandGripInput.ReadValue<float>() > 0.5f;
-        bool rightGrip = player.Controller.GetSubsystem<PlayerHandPresence>().rightHandGripInput.ReadValue<float>() > 0.5f;
+        bool leftGrip = Calls.ControllerMap.LeftController.GetGrip() > 0.5f;
+        bool rightGrip = Calls.ControllerMap.RightController.GetGrip() > 0.5f;
         
         if (isGrabbed)
         {
