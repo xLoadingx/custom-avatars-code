@@ -1,11 +1,88 @@
 {
   "version": 3,
   "targets": {
-    ".NETFramework,Version=v4.7.2": {}
+    "net6.0": {
+      "LavaGang.MelonLoader/0.7.1": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/MelonLoader.dll": {
+            "related": ".runtimeconfig.json;.xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/MelonLoader.dll": {
+            "related": ".runtimeconfig.json;.xml"
+          }
+        }
+      },
+      "Newtonsoft.Json/13.0.4": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/Newtonsoft.Json.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/Newtonsoft.Json.dll": {
+            "related": ".xml"
+          }
+        }
+      }
+    }
   },
-  "libraries": {},
+  "libraries": {
+    "LavaGang.MelonLoader/0.7.1": {
+      "sha512": "pCKxMzK04DdzUguvd4yzssqsBqh9X73qmbpWsNjzXYtt9ncGI/NiMqGxohQ5OOkhUgZtCH9ohInILnNv4MqtGA==",
+      "type": "package",
+      "path": "lavagang.melonloader/0.7.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "lavagang.melonloader.0.7.1.nupkg.sha512",
+        "lavagang.melonloader.nuspec",
+        "lib/net35/MelonLoader.dll",
+        "lib/net35/MelonLoader.xml",
+        "lib/net6.0/MelonLoader.dll",
+        "lib/net6.0/MelonLoader.runtimeconfig.json",
+        "lib/net6.0/MelonLoader.xml"
+      ]
+    },
+    "Newtonsoft.Json/13.0.4": {
+      "sha512": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A==",
+      "type": "package",
+      "path": "newtonsoft.json/13.0.4",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "LICENSE.md",
+        "README.md",
+        "lib/net20/Newtonsoft.Json.dll",
+        "lib/net20/Newtonsoft.Json.xml",
+        "lib/net35/Newtonsoft.Json.dll",
+        "lib/net35/Newtonsoft.Json.xml",
+        "lib/net40/Newtonsoft.Json.dll",
+        "lib/net40/Newtonsoft.Json.xml",
+        "lib/net45/Newtonsoft.Json.dll",
+        "lib/net45/Newtonsoft.Json.xml",
+        "lib/net6.0/Newtonsoft.Json.dll",
+        "lib/net6.0/Newtonsoft.Json.xml",
+        "lib/netstandard1.0/Newtonsoft.Json.dll",
+        "lib/netstandard1.0/Newtonsoft.Json.xml",
+        "lib/netstandard1.3/Newtonsoft.Json.dll",
+        "lib/netstandard1.3/Newtonsoft.Json.xml",
+        "lib/netstandard2.0/Newtonsoft.Json.dll",
+        "lib/netstandard2.0/Newtonsoft.Json.xml",
+        "newtonsoft.json.13.0.4.nupkg.sha512",
+        "newtonsoft.json.nuspec",
+        "packageIcon.png"
+      ]
+    }
+  },
   "projectFileDependencyGroups": {
-    ".NETFramework,Version=v4.7.2": []
+    "net6.0": [
+      "LavaGang.MelonLoader >= 0.7.1",
+      "Newtonsoft.Json >= 13.0.4"
+    ]
   },
   "packageFolders": {
     "C:\\Users\\bella\\.nuget\\packages\\": {}
@@ -13,26 +90,26 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
+      "projectUniqueName": "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\CustomAvatars.csproj",
       "projectName": "CustomAvatars",
-      "projectPath": "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
+      "projectPath": "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\CustomAvatars.csproj",
       "packagesPath": "C:\\Users\\bella\\.nuget\\packages\\",
-      "outputPath": "E:\\Projects\\CustomAvatars\\CustomAvatars\\obj\\",
+      "outputPath": "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\obj\\",
       "projectStyle": "PackageReference",
       "configFilePaths": [
         "C:\\Users\\bella\\AppData\\Roaming\\NuGet\\NuGet.Config",
         "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
       ],
       "originalTargetFrameworks": [
-        "net472"
+        "net6.0"
       ],
       "sources": {
         "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
-        "net472": {
-          "targetAlias": "net472",
+        "net6.0": {
+          "targetAlias": "net6.0",
           "projectReferences": {}
         }
       },
@@ -49,9 +126,35 @@
       "SdkAnalysisLevel": "9.0.300"
     },
     "frameworks": {
-      "net472": {
-        "targetAlias": "net472",
-        "runtimeIdentifierGraphPath": "C:\\Users\\bella\\.dotnet\\sdk\\9.0.306\\RuntimeIdentifierGraph.json"
+      "net6.0": {
+        "targetAlias": "net6.0",
+        "dependencies": {
+          "LavaGang.MelonLoader": {
+            "target": "Package",
+            "version": "[0.7.1, )"
+          },
+          "Newtonsoft.Json": {
+            "target": "Package",
+            "version": "[13.0.4, )"
+          }
+        },
+        "imports": [
+          "net461",
+          "net462",
+          "net47",
+          "net471",
+          "net472",
+          "net48",
+          "net481"
+        ],
+        "assetTargetFallback": true,
+        "warn": true,
+        "frameworkReferences": {
+          "Microsoft.NETCore.App": {
+            "privateAssets": "all"
+          }
+        },
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.313\\RuntimeIdentifierGraph.json"
       }
     }
   }

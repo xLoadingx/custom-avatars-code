@@ -1,32 +1,32 @@
 {
   "format": 1,
   "restore": {
-    "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj": {}
+    "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\CustomAvatars.csproj": {}
   },
   "projects": {
-    "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj": {
+    "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\CustomAvatars.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
+        "projectUniqueName": "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\CustomAvatars.csproj",
         "projectName": "CustomAvatars",
-        "projectPath": "E:\\Projects\\CustomAvatars\\CustomAvatars\\CustomAvatars.csproj",
+        "projectPath": "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\CustomAvatars.csproj",
         "packagesPath": "C:\\Users\\bella\\.nuget\\packages\\",
-        "outputPath": "E:\\Projects\\CustomAvatars\\CustomAvatars\\obj\\",
+        "outputPath": "E:\\Projects\\CustomAvatars2.0\\CustomAvatars\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\bella\\AppData\\Roaming\\NuGet\\NuGet.Config",
           "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
         ],
         "originalTargetFrameworks": [
-          "net472"
+          "net6.0"
         ],
         "sources": {
           "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
           "https://api.nuget.org/v3/index.json": {}
         },
         "frameworks": {
-          "net472": {
-            "targetAlias": "net472",
+          "net6.0": {
+            "targetAlias": "net6.0",
             "projectReferences": {}
           }
         },
@@ -43,9 +43,35 @@
         "SdkAnalysisLevel": "9.0.300"
       },
       "frameworks": {
-        "net472": {
-          "targetAlias": "net472",
-          "runtimeIdentifierGraphPath": "C:\\Users\\bella\\.dotnet\\sdk\\9.0.306\\RuntimeIdentifierGraph.json"
+        "net6.0": {
+          "targetAlias": "net6.0",
+          "dependencies": {
+            "LavaGang.MelonLoader": {
+              "target": "Package",
+              "version": "[0.7.1, )"
+            },
+            "Newtonsoft.Json": {
+              "target": "Package",
+              "version": "[13.0.4, )"
+            }
+          },
+          "imports": [
+            "net461",
+            "net462",
+            "net47",
+            "net471",
+            "net472",
+            "net48",
+            "net481"
+          ],
+          "assetTargetFallback": true,
+          "warn": true,
+          "frameworkReferences": {
+            "Microsoft.NETCore.App": {
+              "privateAssets": "all"
+            }
+          },
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.313\\RuntimeIdentifierGraph.json"
         }
       }
     }
