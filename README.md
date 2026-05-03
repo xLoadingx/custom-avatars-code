@@ -11,4 +11,4 @@ If you want to make your own, check **"How to Make a Custom Rig"**.
 ##  
 
 Need help?
-Join the [Rumble Modding Discord](https://discord.gg/BeWpUXqjtH) and ping `error_real_sir` or `ERROR - ButtonBender`. I'll try to help.
+Join the [Rumble Modding Discord](https://discord.gg/BeWpUXqjtH) and ping `error_real_` or `ERROR - ButtonBender`. I'll try to help.

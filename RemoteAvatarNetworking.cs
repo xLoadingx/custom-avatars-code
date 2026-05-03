@@ -12,72 +12,133 @@ namespace CustomAvatars;
 public class RemoteAvatarNetworking
 {
     private static MelonLogger.Instance logger => Melon<Main>.Logger;
+
+    private const string T1 = "Z2l0aHViX3BhdF8xMUFWR0taSlkwcTRPTXRzNFQzWm1mX3QxbjNxQVpGbQ==";
+    private const string T2 = "anJNNUtPTXVoM3lhNjlablJCVmdZYzl0ZzFDYk9yUzRWRkhFQURNUUg1QXdJVWkzMk4=";
+    public const string KEY = "otc9jahbpt";
     
-    private const long RELEASE_ID = 314323506;
+    // Helpers
+    public static string GetUrlForID(string id) => $"https://raw.githubusercontent.com/xLoadingx/custom-avatars/main/avatars/{id}.rumbleavatar";
 
-    private const string TOKEN = "Token moment";
-
-    public static IEnumerator GetAvatarAsset(Player player, Action<AvatarAsset> callback)
+    public static void SetRequest(UnityWebRequest req)
     {
-        string masterId = player.Data.GeneralData.PlayFabMasterId;
-        string targetName = $"{masterId}.rumbleavatar";
-
-        string url = $"https://api.github.com/repos/xLoadingx/custom-avatars/releases/{RELEASE_ID}/assets";
-
-        var req = UnityWebRequest.Get(url);
         req.SetRequestHeader("User-Agent", "CustomAvatars");
-        req.SetRequestHeader("Authorization", $"Bearer {TOKEN}");
+        req.SetRequestHeader("Authorization", $"Bearer {TKN()}");
+    }
+
+    public static string Xor(string input, string key)
+    {
+        var output = new char[input.Length];
+
+        for (int i = 0; i < input.Length; i++)
+            output[i] = (char)(input[i] ^ key[i % key.Length]);
+
+        var b64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(output));
+        return Uri.EscapeDataString(b64);
+    }
+
+    private static string TKN()
+    {
+        string str1 = Encoding.UTF8.GetString(Convert.FromBase64String(T1));
+        string str2 = Encoding.UTF8.GetString(Convert.FromBase64String(T2));
+        return str1 + str2;
+    }
+    
+    // ----------------------------------------------------------
+    
+    public static IEnumerator RemoteAvatarExists(string masterId, Action<bool> callback)
+    {
+        masterId = Xor(masterId, KEY);
+        
+        string url = GetUrlForID(masterId);
+
+        var req = UnityWebRequest.Head(url);
+        SetRequest(req);
         
         yield return req.SendWebRequest();
 
         if (req.result != UnityWebRequest.Result.Success)
         {
-            logger.Error($"GetAvatarAsset failed: {req.error}");
-            callback?.Invoke(new AvatarAsset { Exists = false });
+            // 404 = 'File Doesn't Exist'
+            if (req.responseCode != 404)
+                logger.Warning($"AvatarExists error: {req.error}");
+            
+            callback?.Invoke(false);
             yield break;
         }
 
-        string json = req.downloadHandler.text;
-        
-        logger.Msg($"Json: {json}");
-
-        int nameIndex = json.IndexOf($"\"name\":\"{targetName}\"", StringComparison.Ordinal);
-        if (nameIndex == -1)
-        {
-            callback?.Invoke(new AvatarAsset { Exists = false });
-            req.Dispose();
-            yield break;
-        }
-        
-        int idIndex = json.LastIndexOf("\"id\":", nameIndex, StringComparison.Ordinal);
-        if (idIndex == -1)
-        {
-            callback?.Invoke(new AvatarAsset { Exists = false });
-            req.Dispose();
-            yield break;
-        }
-
-        idIndex += 5;
-        int idEnd = json.IndexOf(',', idIndex);
-
-        string idStr = json.Substring(idIndex, idEnd - idIndex).Trim();
-
-        long id = long.Parse(idStr);
-
-        callback?.Invoke(new AvatarAsset
-        {
-            Exists = true,
-            Id = id,
-            Name = targetName
-        });
-
+        callback?.Invoke(true);
         req.Dispose();
     }
     
-    public struct AvatarAsset
+    public static IEnumerator GetAvatarAsset(
+        string masterId, 
+        Action<byte[]> callback,
+        Action<float> onProgress = null,
+        Func<bool> isCancelled = null)
     {
-        public bool Exists;
-        public long Id;
-        public string Name;
+        masterId = Xor(masterId, KEY);
+        string url = GetUrlForID(masterId);
+
+        var headReq = UnityWebRequest.Head(url);
+        SetRequest(headReq);
+
+        yield return headReq.SendWebRequest();
+
+        if (headReq.result == UnityWebRequest.Result.Success)
+        {
+            string lengthHeader = headReq.GetResponseHeader("Content-Length");
+            if (long.TryParse(lengthHeader, out var size))
+            {
+                if (size > Main.instance.MaxFileDownloadSize.Value * 1024f * 1024f)
+                {
+                    logger.Warning($"Avatar too large for player {masterId} ({size} bytes)");
+                    callback?.Invoke(null);
+                    yield break;
+                }
+            }
+        }
+
+        headReq.Dispose();
+
+        var req = UnityWebRequest.Get(url);
+        SetRequest(req);
+        
+        var downloadReq = req.SendWebRequest();
+
+        while (!downloadReq.isDone)
+        {
+            if (isCancelled?.Invoke() == true)
+            {
+                req.Abort();
+                callback?.Invoke(null);
+                yield break;
+            }
+            
+            onProgress?.Invoke(downloadReq.progress);
+            yield return null;
+        }
+
+        if (req.result != UnityWebRequest.Result.Success)
+        {
+            logger.Msg($"No avatar for {masterId} ({req.responseCode}");
+            callback?.Invoke(null);
+            yield break;
+        }
+
+        byte[] data = req.downloadHandler.data;
+
+        if (data == null || data.Length == 0)
+        {
+            logger.Warning("Downloaded empty avatar");
+            callback?.Invoke(null);
+            yield break;
+        }
+        
+        logger.Msg($"Downloaded avatar for {masterId} ({data.Length} bytes)");
+
+        callback?.Invoke(data);
+
+        req.Dispose();
     }
 }

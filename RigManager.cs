@@ -1,11 +1,12 @@
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Il2CppPhoton.Pun;
 using Il2CppRootMotion.FinalIK;
 using Il2CppRUMBLE.Players;
 using Il2CppRUMBLE.Players.Subsystems;
+using Il2CppTMPro;
 using MelonLoader;
 using MelonLoader.Utils;
 using Newtonsoft.Json;
@@ -15,14 +16,18 @@ using Object = UnityEngine.Object;
 
 namespace CustomAvatars;
 
-public class RigLoader
+public class RigManager
 {
     private static Transform referenceSkeleton;
     private static Material loadingMaterial;
+    public static GameObject loadingBarPrefab;
+    public static GameObject avatarIconPrefab;
+
+    private static GameObject RigParent;
 
     private static MelonLogger.Instance logger => Melon<Main>.Logger;
 
-    public static void EnsureReferenceObjects()
+    public static void EnsureStaticObjects()
     {
         referenceSkeleton ??= GameObject.Instantiate(Resources
             .FindObjectsOfTypeAll<PlayerController>()
@@ -30,12 +35,62 @@ public class RigLoader
             ?.PlayerVisuals.transform.GetChild(1).gameObject).transform;
         
         Object.DontDestroyOnLoad(referenceSkeleton.gameObject);
-        
-        loadingMaterial ??= new Material(
-            GameObjects.Gym.INTERACTABLES.PoseGhost.Ghost.StaticGhost.Visuals.Poseghostbody.GetGameObject().GetComponent<Renderer>().material
-        );
 
+        if (Main.instance.currentScene == "Gym")
+        {
+            loadingMaterial ??= new Material(
+                GameObjects.Gym.INTERACTABLES.PoseGhost.Ghost.StaticGhost.Visuals.Poseghostbody.GetGameObject().GetComponent<Renderer>().material
+            );
+            
+            if (loadingBarPrefab == null)
+            {
+                loadingBarPrefab = new GameObject("[Custom Avatars] Loading Bar Prefab");
+                loadingBarPrefab.SetActive(false);
+                Object.DontDestroyOnLoad(loadingBarPrefab);
+                
+                var bar = Object.Instantiate(
+                        GameObjects.Gym.INTERACTABLES.ProgressTracker.ProgressPanel.StatusBar.GetGameObject(),
+                        loadingBarPrefab.transform,
+                        false
+                    );
+
+                var text = Create.NewText("0%", 1f, Color.white, Vector3.zero, Quaternion.identity);
+                text.transform.SetParent(loadingBarPrefab.transform);
+                text.GetComponent<TextMeshPro>().enableWordWrapping = false;
+
+                text.name = "[Custom Avatars] Download Progress Text";
+                text.transform.localPosition = new Vector3(0, -0.1142f, 0);
+                text.transform.localRotation = Quaternion.Euler(0, 180, 0);
+                text.transform.localScale = Vector3.one * 0.7f;
+
+                bar.name = "[Custom Avatars] Download Progress Bar";
+                bar.transform.localPosition = new Vector3(0, -0.1831f, 0);
+                bar.transform.localRotation = Quaternion.Euler(0, 180, 0);
+                bar.transform.localScale = new Vector3(0.6f, 0.05f, 0.6f);
+
+                var mat = bar.GetComponent<MeshRenderer>().material;
+                mat.SetFloat("_RC_Target", 1f);
+                mat.SetFloat("_RC_Current", 0f);
+            }
+        }
+        
         loadingMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset;
+
+        if (RigParent == null)
+            RigParent = new GameObject("[CustomAvatar] Rigs");
+
+        // if (avatarIconPrefab == null)
+        // {
+        //     var bundle = AssetBundles.LoadAssetBundleFromStream(Main.instance, "Resources.avatarthingies");
+        //     var tagIcon = bundle.LoadAsset<Sprite>("icon");
+        //     avatarIconPrefab = new("[Custom Avatars] Tag");
+        //
+        //     var renderer = avatarIconPrefab.AddComponent<SpriteRenderer>();
+        //     renderer.sprite = tagIcon;
+        //     
+        //     GameObject.DontDestroyOnLoad(avatarIconPrefab);
+        //     avatarIconPrefab.SetActive(false);
+        // }
     }
     
     // Thanks so much to Orangenal for finding this method of forcing T-Pose
@@ -82,10 +137,18 @@ public class RigLoader
         Player player, 
         int avatarIdx = 0, 
         GameObject overrideController = null,
-        Action<bool> onDone = null)
+        Action<bool> onDone = null,
+        Func<bool> waitUntil = null)
     {
-        bool isLocal = player == Main.LocalPlayer;
+        void Trace(string msg) {
+            if (Main.instance.DebugMode.Value) Main.instance.LoggerInstance.Msg($"[Avatar:{player.Data.GeneralData.PlayFabMasterId}] {msg}");
+        }
 
+        if (waitUntil != null)
+            yield return new WaitUntil(waitUntil);
+
+        Trace("Start load");
+        
         var controller = overrideController ?? player.Controller.gameObject;
 
         // if already has rig loaded, unload.
@@ -101,53 +164,103 @@ public class RigLoader
 
             Object.Destroy(customRig);
         }
+        
+        // -----------------------------------------------------
 
-        // Check for avatar
-        
-        string avatarPath = null;
-        
-        if (isLocal) {
-            avatarPath = GetLocalAvatarPath(avatarIdx);
-            if (avatarPath == null)
-            {
-                onDone?.Invoke(false);
-                yield break;
-            }
-        }
-        else
+        if (player != Main.LocalPlayer)
         {
-            bool hasAvatar = false;
-            yield return RemoteAvatarNetworking.GetAvatarAsset(player, (avatarStatus) => hasAvatar = avatarStatus.Exists);
-
-            if (!hasAvatar)
-            {
-                onDone?.Invoke(false);
-                yield break;
-            }
+            while (player.Controller.GetComponent<PhotonView>().Owner == null)
+                yield return null;
         }
         
-        // ------------------------------------------------
+        if (!ShouldAttemptLoadForPlayer(player)) yield break;
         
+        AvatarLoadContext ctx = null;
+
+        yield return GetContextForAvatar(player, avatarIdx, c => ctx = c);
+
+        if (ctx == null)
+        {
+            onDone?.Invoke(false);
+            yield break;
+        }
+        
+        Trace(ctx.IsLocal ? "Local avatar path found" : "Remote avatar exists");
+        
+        // -----------------------------------------------------
+        
+        // Has avatar, continue with loading / downloading if remote
+
         customRig = controller.AddComponent<CustomRig>();
         customRig.IsLoading = true;
-        customRig.path = avatarPath;
+        customRig.path = ctx.AvatarPath; /* Null if remote */
+
+        if (PhotonNetwork.InRoom)
+            customRig.photonPlayer = player.Controller.GetComponent<PhotonView>().Owner;
 
         var playerRenderer = controller.GetComponentInChildren<SkinnedMeshRenderer>();
+
         customRig.OriginalMaterial = new Material(playerRenderer.material);
         customRig.OriginalMesh = playerRenderer.sharedMesh;
         customRig.OriginalBones = playerRenderer.bones;
         customRig.OriginalRootBone = playerRenderer.rootBone;
 
-        customRig.OriginalMesh.hideFlags = HideFlags.DontUnloadUnusedAsset;
         customRig.OriginalMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset;
+        customRig.OriginalMesh.hideFlags = HideFlags.DontUnloadUnusedAsset;
 
-        playerRenderer.material = loadingMaterial;
+        if (!ctx.IsLocal)
+        {
+            playerRenderer.material = loadingMaterial;
+            customRig.EnsureLoadingBar();
+        }
+        
+        // -----------------------------------------------------
+        
+        // Remote download
 
-        // ------------------------------------------------
+        byte[] avatarData = null;
+        
+        if (!ctx.IsLocal)
+        {
+            Trace("Downloading avatar");
+
+            customRig.loadingBar.SetActive(true);
+            
+            yield return RemoteAvatarNetworking.GetAvatarAsset(
+                player.Data.GeneralData.PlayFabMasterId,
+                data => avatarData = data,
+                (progress) =>
+                {
+                    Trace($"{progress * 100f:F}%");
+                    
+                    customRig.UpdateLoadingProgress(progress);
+                },
+                () => customRig == null
+            );
+
+            customRig.loadingBar.SetActive(false);
+
+            Trace(avatarData != null ? "Download complete" : "Download failed");
+
+            // Download failed or (rarely) avatar deleted between check and download
+            if (avatarData == null)
+            {
+                playerRenderer.material = customRig.OriginalMaterial;
+                Object.Destroy(customRig);
+
+                onDone?.Invoke(false);
+
+                yield break;
+            }
+        }
+        
+        // -----------------------------------------------------
         
         GameObject avatarInstance = null;
         AvatarDescriptorExport config = null;
-        yield return LoadAvatarInstanceAsync(avatarPath, (avatar, settings) => { avatarInstance = avatar; config = settings; });
+        yield return LoadAvatarInstanceAsync(ctx.AvatarPath, avatarData, (avatar, settings) => { avatarInstance = avatar; config = settings; });
+
+        Trace("Avatar instance created");
 
         void Fail(string msg)
         {
@@ -155,7 +268,10 @@ public class RigLoader
 
             playerRenderer.material = customRig.OriginalMaterial;
 
-            Object.Destroy(customRig);
+            ToggleTPose(player.Controller.gameObject, false);
+            
+            if (customRig != null)
+                Object.Destroy(customRig);
             
             if (avatarInstance != null)
                 Object.Destroy(avatarInstance);
@@ -165,7 +281,7 @@ public class RigLoader
         
         if (avatarInstance == null)
         {
-            Fail($"Avatar could not be loaded from path: {avatarPath} | Player: {player.Data.GeneralData.PublicUsername}");
+            Fail($"Avatar could not be loaded from path: {ctx.AvatarPath} | Player: {player.Data.GeneralData.PublicUsername}");
             yield break;
         } 
         
@@ -174,6 +290,15 @@ public class RigLoader
             Fail($"Avatar does not have valid config | Player: {player.Data.GeneralData.PublicUsername}");
             yield break;
         }
+
+        if (RigParent == null)
+        {
+            Fail("Rig parent could not be found.");
+            yield break;
+        }
+        
+        avatarInstance.transform.SetParent(RigParent.transform);
+        avatarInstance.name = $"Avatar | {player.Data.GeneralData.PlayFabMasterId} | {player.Data.GeneralData.PublicUsername}";
         
         customRig.Root = avatarInstance;
         customRig.config = config;
@@ -182,6 +307,7 @@ public class RigLoader
 
         try
         {
+            Trace("Applying avatar");
             ApplyInstanceToPlayer(customRig);
 
             customRig.IsLoading = false;
@@ -192,6 +318,8 @@ public class RigLoader
             Fail($"Failed to apply avatar instance to player: {e.Message}");
         }
     }
+    
+    // Helpers
 
     public static string GetLocalAvatarPath(int idx = 0)
     {
@@ -206,16 +334,107 @@ public class RigLoader
         idx = Mathf.Clamp(idx, 0, files.Length - 1);
         return files[idx];
     }
-    
-    public static IEnumerator LoadAvatarInstanceAsync(string path, Action<GameObject, AvatarDescriptorExport> callback = null)
+
+    public static IEnumerator GetContextForAvatar(
+        Player player,
+        int avatarIdx = 0,
+        Action<AvatarLoadContext> done = null
+    )
     {
-        if (!File.Exists(path))
+        var ctx = new AvatarLoadContext();
+        ctx.IsLocal = player == Main.LocalPlayer;
+
+        if (ctx.IsLocal)
         {
-            logger.Error($"Avatar file not found: {path}");
+            ctx.AvatarPath = GetLocalAvatarPath(avatarIdx);
+
+            if (ctx.AvatarPath == null)
+            {
+                done?.Invoke(null);
+                yield break;
+            }
+            
+            done?.Invoke(ctx);
             yield break;
         }
 
-        var request = AssetBundle.LoadFromFileAsync(path);
+        bool exists = false;
+
+        yield return RemoteAvatarNetworking.RemoteAvatarExists(
+            player.Data.GeneralData.PlayFabMasterId,
+            e => exists = e
+        );
+
+        if (!exists)
+        {
+            done?.Invoke(null);
+            yield break;
+        }
+
+        ctx.Exists = true;
+        done?.Invoke(ctx);
+    }
+
+    public static bool ShouldAttemptLoadForPlayer(Player player)
+    {
+        var m = Main.instance;
+
+        bool isInMatch = m.currentScene is "Map0" or "Map1";
+
+        if (player == Main.LocalPlayer)
+        {
+            if (!m.ToggleForSelf.Value)
+                return false;
+
+            if (isInMatch && !m.ToggleSelfInMatch.Value)
+                return false;
+
+            return true;
+        }
+
+        if (!m.ToggleForOthers.Value)
+            return false;
+        
+        if (isInMatch && !m.ToggleOthersInMatch.Value)
+            return false;
+
+        if (PhotonNetwork.InRoom)
+        {
+            var photonPlayer = player.Controller.GetComponent<PhotonView>().Owner;
+            if (!photonPlayer.CustomProperties.TryGetValue("CA:visibility", out var visible))
+                return false;
+            
+            return visible.Unbox<bool>();
+        }
+        
+        return true;
+    }
+    
+    // -----------------------------------------------------
+    
+    public static IEnumerator LoadAvatarInstanceAsync(string path = null, byte[] data = null, Action<GameObject, AvatarDescriptorExport> callback = null)
+    {
+        AssetBundleCreateRequest request;
+        
+        if (path != null)
+        {
+            if (!File.Exists(path))
+            {
+                logger.Error($"Avatar file not found: {path}");
+                yield break; 
+            }
+            
+            request = AssetBundle.LoadFromFileAsync(path);
+        } else if (data != null)
+        {
+            request = AssetBundle.LoadFromMemoryAsync(data);
+        }
+        else
+        {
+            logger.Error("LoadAvatarInstanceAsync: Must supply either a path or bundle data.");
+            yield break;
+        }
+
         yield return request;
 
         var bundle = request.assetBundle;
@@ -274,7 +493,7 @@ public class RigLoader
             avatar.MainRenderer.SetBlendShapeWeight(b.index, b.weight);
         }
 
-        avatar.blinkRoutine = MelonCoroutines.Start(avatar.BlinkRoutine());
+        avatar.blinkRoutine ??= MelonCoroutines.Start(avatar.BlinkRoutine());
         
         ToggleTPose(targetController, false);
     }
@@ -381,236 +600,10 @@ public class RigLoader
     }
 }
 
-[RegisterTypeInIl2Cpp]
-public class CustomRig : MonoBehaviour
+public class AvatarLoadContext
 {
-    public GameObject Root;
-    public SkinnedMeshRenderer MainRenderer;
-    public PlayerController playerController;
-    public AvatarDescriptorExport config;
-
-    public bool IsLoading;
-    public string path;
-
-    public Mesh OriginalMesh;
-    public Material OriginalMaterial;
-    public Transform[] OriginalBones;
-    public Transform OriginalRootBone;
-
     public bool IsLocal;
-
-    public object blinkRoutine;
-
-    public void Awake()
-    {
-        playerController = GetComponent<PlayerController>();
-    }
-
-    public void OnDestroy()
-    {
-        var playerRenderer = transform.GetComponentInChildren<SkinnedMeshRenderer>();
-
-        var bones = playerRenderer.GetComponentsInChildren<CustomRigBone>(true);
-
-        foreach (var b in bones)
-        {
-            if (b != null)
-                Destroy(b.gameObject);
-        }
-        
-        playerRenderer.sharedMesh = OriginalMesh;
-        playerRenderer.material = OriginalMaterial;
-        playerRenderer.bones = OriginalBones;
-        playerRenderer.rootBone = OriginalRootBone;
-
-        if (blinkRoutine != null)
-            MelonCoroutines.Stop(blinkRoutine);
-
-        if (Root != null)
-            Destroy(Root);
-    }
-
-    public void Update()
-    {
-        if (config != null && MainRenderer != null && playerController != null)
-        {
-            // Jaw
-            var idx = config.jawOpenBlendshape;
-            if (idx < MainRenderer.sharedMesh.blendShapeCount)
-            {
-                var voiceSystem = playerController.PlayerVoiceSystem;
-
-                if (voiceSystem != null)
-                {
-                    float weight = Mathf.Clamp(voiceSystem.currentJawOpenPercentage * 100f * config.voiceMultiplier, 0, 100);
-                    MainRenderer.SetBlendShapeWeight(idx, weight);
-                }
-            }
-            
-            // Eyes
-            var eyeSystem = playerController.PlayerEyeSystem;
-
-            if (eyeSystem.CurrentAttentionPoint != null)
-            {
-                var settings = config.eyeSettings;
-                
-                if (settings.eyeUpBlendshape == -1 || 
-                    settings.eyeDownBlendshape == -1 ||
-                    settings.eyeLeftBlendshape == -1 || 
-                    settings.eyeRightBlendshape == -1)
-                    return;
-
-                var head = playerController.PlayerAnimator.animator
-                    .GetBoneTransform(HumanBodyBones.Head);
-
-                if (head == null) return;
-
-                Vector3 target = eyeSystem.CurrentAttentionPoint.transform.position;
-                
-                Vector3 dir = (target - head.position).normalized;
-                
-                Vector3 localDir = head.InverseTransformDirection(dir);
-
-                float x = localDir.x;
-                float y = localDir.y;
-
-                float gain = settings.eyeGain;
-
-                float up = Mathf.Clamp01(y * gain);
-                float down = Mathf.Clamp01(-y * gain);
-                float right = Mathf.Clamp01(x * gain);
-                float left = Mathf.Clamp01(-x * gain);
-
-                MainRenderer.SetBlendShapeWeight(settings.eyeUpBlendshape, up * 100f);
-                MainRenderer.SetBlendShapeWeight(settings.eyeDownBlendshape, down * 100f);
-                MainRenderer.SetBlendShapeWeight(settings.eyeLeftBlendshape, left * 100f);
-                MainRenderer.SetBlendShapeWeight(settings.eyeRightBlendshape, right * 100f);
-            }
-        }
-    }
-    
-    public IEnumerator BlinkRoutine()
-    {
-        while (true)
-        {
-            float wait = UnityEngine.Random.Range(
-                config.eyeSettings.blinkInterval.x,
-                config.eyeSettings.blinkInterval.y
-            );
-
-            yield return new WaitForSeconds(wait);
-
-            yield return Blink();
-        }
-    }
-
-    IEnumerator Blink()
-    {
-        var eyes = config.eyeSettings;
-
-        float t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime / eyes.blinkSpeed;
-            float w = Mathf.Lerp(0, 100, t);
-
-            ApplyBlinkWeight(MainRenderer, eyes, w);
-
-            yield return null;
-        }
-
-        t = 0f;
-
-        while (t < 1f)
-        {
-            t += Time.deltaTime / eyes.blinkSpeed;
-            float w = Mathf.Lerp(100, 0, t);
-
-            ApplyBlinkWeight(MainRenderer, eyes, w);
-
-            yield return null;
-        }
-    }
-
-    void ApplyBlinkWeight(SkinnedMeshRenderer smr, EyeSettings eyes, float weight)
-    {
-        if (eyes.blinkType == AvatarDescriptorExport.BlinkType.Single)
-        {
-            smr.SetBlendShapeWeight(eyes.blinkBlendshape, weight);
-        } else if (eyes.blinkType == AvatarDescriptorExport.BlinkType.LeftRight)
-        {
-            smr.SetBlendShapeWeight(eyes.blinkLeftBlendshape, weight);
-            smr.SetBlendShapeWeight(eyes.blinkRightBlendshape, weight);
-        }
-    }
-}
-
-[RegisterTypeInIl2Cpp]
-public class CustomRigBone : MonoBehaviour { }
-
-public enum ParamType
-{
-    Bool,
-    Float,
-    Int
-}
-
-[Serializable]
-public class AvatarDescriptorExport
-{
-    public enum BlinkType
-    {
-        None,
-        Single,
-        LeftRight
-    }
-
-    public bool swapOriginalMesh = true;
-    public List<int> playerShaderSlots = new();
-    public int bodyShaderSlot = -1;
-    public List<BlendshapeDefault> defaultBlendshapes = new();
-    public int jawOpenBlendshape = -1;
-    public float voiceMultiplier = 1f;
-    public EyeSettings eyeSettings = new EyeSettings();
-    public List<AvatarParam> parameters = new();
-}
-
-[Serializable]
-public class EyeSettings
-{
-    public AvatarDescriptorExport.BlinkType blinkType;
-    public int blinkBlendshape = -1;
-    public int blinkLeftBlendshape = -1;
-    public int blinkRightBlendshape = -1;
-
-    public int eyeUpBlendshape = -1;
-    public int eyeDownBlendshape = -1;
-    public int eyeLeftBlendshape = -1;
-    public int eyeRightBlendshape = -1;
-
-    public float eyeGain = 1.0f;
-
-    public Vector2 blinkInterval = new(2.5f, 5f);
-    public float blinkSpeed = 0.05f;
-}
-
-[Serializable]
-public class BlendshapeDefault
-{
-    public string name;
-    public int index;
-    public float weight;
-}
-
-[Serializable]
-public class AvatarParam
-{
-    public ParamType type;
-    public bool networked = true;
-    public string uiLabel;
-
-    // if bool
-    public int targetIndex = -1;
-    public bool defaultToggle = true;
+    public string AvatarPath;
+    public byte[] RemoteData;
+    public bool Exists;
 }
