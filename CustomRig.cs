@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Il2CppPhoton.Pun;
 using Il2CppRUMBLE.Players;
+using Il2CppRUMBLE.Players.Subsystems;
 using Il2CppTMPro;
 using MelonLoader;
 using RumbleModdingAPI.RMAPI;
@@ -41,6 +42,20 @@ public class CustomRig : MonoBehaviour
     public void Awake()
     {
         playerController = GetComponent<PlayerController>();
+    }
+
+    public void CachePlayerVisuals(SkinnedMeshRenderer playerRenderer)
+    {
+        if (playerRenderer == null)
+            return;
+        
+        OriginalMaterial = new Material(playerRenderer.material);
+        OriginalMesh = Instantiate(playerRenderer.sharedMesh);
+        OriginalBones = playerRenderer.bones;
+        OriginalRootBone = playerRenderer.rootBone;
+
+        OriginalMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset;
+        OriginalMesh.hideFlags = HideFlags.DontUnloadUnusedAsset;
     }
 
     public void OnDestroy()
@@ -252,7 +267,6 @@ public class AvatarDescriptorExport
 
     public bool swapOriginalMesh = true;
     public List<int> playerShaderSlots = new();
-    public int bodyShaderSlot = -1;
     public List<BlendshapeDefault> defaultBlendshapes = new();
     public int jawOpenBlendshape = -1;
     public float voiceMultiplier = 1f;
@@ -298,3 +312,6 @@ public class AvatarParam
     public int targetIndex = -1;
     public bool defaultToggle = true;
 }
+
+[RegisterTypeInIl2Cpp]
+public class AvatarTag : MonoBehaviour { }

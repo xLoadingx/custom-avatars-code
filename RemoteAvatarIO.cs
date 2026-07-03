@@ -9,7 +9,7 @@ using File = System.IO.File;
 
 namespace CustomAvatars;
 
-public class RemoteAvatarNetworking
+public class RemoteAvatarIO
 {
     private static MelonLogger.Instance logger => Melon<Main>.Logger;
 
@@ -56,6 +56,10 @@ public class RemoteAvatarNetworking
         SetRequest(req);
         
         yield return req.SendWebRequest();
+        
+        logger.Warning(
+            $"result={req.result}, code={req.responseCode}, error={req.error}, url={url}"
+        );
 
         if (req.result != UnityWebRequest.Result.Success)
         {

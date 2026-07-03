@@ -79,18 +79,20 @@ public class RigManager
         if (RigParent == null)
             RigParent = new GameObject("[CustomAvatar] Rigs");
 
-        // if (avatarIconPrefab == null)
-        // {
-        //     var bundle = AssetBundles.LoadAssetBundleFromStream(Main.instance, "Resources.avatarthingies");
-        //     var tagIcon = bundle.LoadAsset<Sprite>("icon");
-        //     avatarIconPrefab = new("[Custom Avatars] Tag");
-        //
-        //     var renderer = avatarIconPrefab.AddComponent<SpriteRenderer>();
-        //     renderer.sprite = tagIcon;
-        //     
-        //     GameObject.DontDestroyOnLoad(avatarIconPrefab);
-        //     avatarIconPrefab.SetActive(false);
-        // }
+        if (avatarIconPrefab == null)
+        {
+            var bundle = AssetBundles.LoadAssetBundleFromStream(Main.instance, "CustomAvatars.Resources.avatarthingies");
+            var tagIcon = bundle.LoadAsset<Sprite>("icon");
+            avatarIconPrefab = new("[Custom Avatars] Tag");
+        
+            var renderer = avatarIconPrefab.AddComponent<SpriteRenderer>();
+            renderer.sprite = tagIcon;
+            
+            GameObject.DontDestroyOnLoad(avatarIconPrefab);
+            avatarIconPrefab.SetActive(false);
+
+            bundle.Unload(false);
+        }
     }
     
     // Thanks so much to Orangenal for finding this method of forcing T-Pose
@@ -144,9 +146,6 @@ public class RigManager
             if (Main.instance.DebugMode.Value) Main.instance.LoggerInstance.Msg($"[Avatar:{player.Data.GeneralData.PlayFabMasterId}] {msg}");
         }
 
-        if (waitUntil != null)
-            yield return new WaitUntil(waitUntil);
-
         Trace("Start load");
         
         var controller = overrideController ?? player.Controller.gameObject;
@@ -158,29 +157,60 @@ public class RigManager
             if (customRig.IsLoading)
             {
                 logger.Warning("Avatar loading is already running for this instance.");
+                customRig.CachePlayerVisuals(controller.GetComponentInChildren<SkinnedMeshRenderer>());
                 onDone?.Invoke(false);
                 yield break;
             }
 
             Object.Destroy(customRig);
+            yield return null;
         }
         
         // -----------------------------------------------------
 
-        if (player != Main.LocalPlayer)
+        Trace("Wait for photon view");
+        
+        var view = controller.GetComponent<PhotonView>();
+        while (PhotonNetwork.InRoom && view != null && view.Owner == null)
         {
-            while (player.Controller.GetComponent<PhotonView>().Owner == null)
-                yield return null;
+            if (player == null || controller == null)
+            {
+                onDone?.Invoke(false);
+                yield break;
+            }
+
+            yield return null;
         }
         
-        if (!ShouldAttemptLoadForPlayer(player)) yield break;
+        Trace("Done with photon view check");
+
+        // if (!ShouldAttemptLoadForPlayer(player))
+        // {
+        //     onDone?.Invoke(false);
+        //     yield break;
+        // }
+
+        while (waitUntil?.Invoke() ?? false)
+            yield return null;
+        
+        Trace("After wait until");
         
         AvatarLoadContext ctx = null;
 
-        yield return GetContextForAvatar(player, avatarIdx, c => ctx = c);
+        Trace("Start get context");
+        var contextRoutine = GetContextForAvatar(player, avatarIdx, c =>
+        {
+            Trace($"Context callback fired. Null? {c == null}");
+            ctx = c;
+        });
 
+        while (contextRoutine.MoveNext())
+            yield return contextRoutine.Current;
+        
+        Trace("After get context");
         if (ctx == null)
         {
+            Trace("Context null");
             onDone?.Invoke(false);
             yield break;
         }
@@ -200,13 +230,10 @@ public class RigManager
 
         var playerRenderer = controller.GetComponentInChildren<SkinnedMeshRenderer>();
 
-        customRig.OriginalMaterial = new Material(playerRenderer.material);
-        customRig.OriginalMesh = playerRenderer.sharedMesh;
-        customRig.OriginalBones = playerRenderer.bones;
-        customRig.OriginalRootBone = playerRenderer.rootBone;
+        while (playerRenderer.sharedMesh == null || playerRenderer.rootBone == null)
+            yield return null;
 
-        customRig.OriginalMaterial.hideFlags = HideFlags.DontUnloadUnusedAsset;
-        customRig.OriginalMesh.hideFlags = HideFlags.DontUnloadUnusedAsset;
+        customRig.CachePlayerVisuals(playerRenderer);
 
         if (!ctx.IsLocal)
         {
@@ -224,9 +251,9 @@ public class RigManager
         {
             Trace("Downloading avatar");
 
-            customRig.loadingBar.SetActive(true);
+            customRig.loadingBar?.SetActive(true);
             
-            yield return RemoteAvatarNetworking.GetAvatarAsset(
+            yield return RemoteAvatarIO.GetAvatarAsset(
                 player.Data.GeneralData.PlayFabMasterId,
                 data => avatarData = data,
                 (progress) =>
@@ -238,7 +265,7 @@ public class RigManager
                 () => customRig == null
             );
 
-            customRig.loadingBar.SetActive(false);
+            customRig.loadingBar?.SetActive(false);
 
             Trace(avatarData != null ? "Download complete" : "Download failed");
 
@@ -268,7 +295,7 @@ public class RigManager
 
             playerRenderer.material = customRig.OriginalMaterial;
 
-            ToggleTPose(player.Controller.gameObject, false);
+            ToggleTPose(controller.gameObject, false);
             
             if (customRig != null)
                 Object.Destroy(customRig);
@@ -311,6 +338,7 @@ public class RigManager
             ApplyInstanceToPlayer(customRig);
 
             customRig.IsLoading = false;
+            
             onDone?.Invoke(true);
         }
         catch (Exception e)
@@ -341,15 +369,18 @@ public class RigManager
         Action<AvatarLoadContext> done = null
     )
     {
+        Main.instance.LoggerInstance.Warning("Start GetContext");
         var ctx = new AvatarLoadContext();
         ctx.IsLocal = player == Main.LocalPlayer;
 
         if (ctx.IsLocal)
         {
+            Main.instance.LoggerInstance.Warning("Is Local Player");
             ctx.AvatarPath = GetLocalAvatarPath(avatarIdx);
 
             if (ctx.AvatarPath == null)
             {
+                Main.instance.LoggerInstance.Warning("Avatar path null");
                 done?.Invoke(null);
                 yield break;
             }
@@ -358,19 +389,24 @@ public class RigManager
             yield break;
         }
 
+        Main.instance.LoggerInstance.Warning("Is Remote Player");
         bool exists = false;
 
-        yield return RemoteAvatarNetworking.RemoteAvatarExists(
+        Main.instance.LoggerInstance.Warning("RemoteAvatarExists check");
+        yield return RemoteAvatarIO.RemoteAvatarExists(
             player.Data.GeneralData.PlayFabMasterId,
             e => exists = e
         );
+        Main.instance.LoggerInstance.Warning("After RAE Check");
 
         if (!exists)
         {
+            Main.instance.LoggerInstance.Warning("Not exist");
             done?.Invoke(null);
             yield break;
         }
 
+        Main.instance.LoggerInstance.Warning("Exists");
         ctx.Exists = true;
         done?.Invoke(ctx);
     }
@@ -401,10 +437,9 @@ public class RigManager
         if (PhotonNetwork.InRoom)
         {
             var photonPlayer = player.Controller.GetComponent<PhotonView>().Owner;
-            if (!photonPlayer.CustomProperties.TryGetValue("CA:visibility", out var visible))
+
+            if (!CAParams.Visibility.Get(photonPlayer))
                 return false;
-            
-            return visible.Unbox<bool>();
         }
         
         return true;
@@ -579,8 +614,8 @@ public class RigManager
                     mat = new Material(original);
                 }
 
-                if (mat.HasProperty("_IsLocal"))
-                    mat.SetFloat("_IsLocal", isLocal ? 1f : 0f);
+                if (mat.HasProperty("_IsLocalPlayer"))
+                    mat.SetFloat("_IsLocalPlayer", isLocal ? 1f : 0f);
 
                 newMats[i] = mat;
             }
